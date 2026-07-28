@@ -1,0 +1,1138 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Çizgi Film Üretici</title>
+<style>
+  :root{
+    --bg1:#fef6e4; --bg2:#e0f7fa; --accent:#ff6b6b; --accent2:#4ecdc4;
+    --ink:#2d2a3d; --card:#ffffff;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    background:linear-gradient(160deg,var(--bg1),var(--bg2));
+    color:var(--ink);
+    min-height:100vh;
+    padding:12px;
+  }
+  #app{
+    max-width:480px;
+    margin:0 auto;
+  }
+  h1{
+    text-align:center;
+    font-size:1.4rem;
+    margin:6px 0 14px;
+  }
+  textarea{
+    width:100%;
+    min-height:80px;
+    border-radius:14px;
+    border:2px solid #ffd6a5;
+    padding:10px 12px;
+    font-size:1rem;
+    resize:vertical;
+    background:var(--card);
+    font-family:inherit;
+  }
+  textarea:focus{outline:2px solid var(--accent2);}
+  .buttons{
+    display:flex;
+    flex-wrap:wrap;
+    gap:8px;
+    margin:10px 0;
+  }
+  button{
+    flex:1 1 auto;
+    min-width:110px;
+    padding:12px 10px;
+    border:none;
+    border-radius:12px;
+    font-size:0.95rem;
+    font-weight:600;
+    cursor:pointer;
+    color:#fff;
+    background:var(--accent);
+    box-shadow:0 3px 0 rgba(0,0,0,0.15);
+    transition:transform .1s ease, opacity .2s ease;
+  }
+  button:active{transform:translateY(2px);box-shadow:0 1px 0 rgba(0,0,0,0.15);}
+  button:disabled{opacity:.45;cursor:not-allowed;box-shadow:none;}
+  #genBtn{background:#6a5acd;}
+  #playBtn{background:#2ec4b6;}
+  #stopBtn{background:#ff9f1c;}
+  #recBtn{background:#e63946;}
+  #status{
+    font-size:0.85rem;
+    min-height:1.1em;
+    text-align:center;
+    margin-bottom:6px;
+    color:#555;
+  }
+  #stage{
+    position:relative;
+    width:100%;
+    max-width:420px;
+    margin:0 auto;
+    border-radius:18px;
+    overflow:hidden;
+    box-shadow:0 8px 24px rgba(0,0,0,0.18);
+    background:#000;
+  }
+  canvas{
+    display:block;
+    width:100%;
+    height:auto;
+  }
+  #subtitle{
+    min-height:2.6em;
+    text-align:center;
+    font-size:0.95rem;
+    font-weight:600;
+    background:var(--card);
+    border-radius:12px;
+    padding:8px 12px;
+    margin:10px auto;
+    max-width:420px;
+    box-shadow:0 2px 6px rgba(0,0,0,0.08);
+  }
+  #meta{
+    max-width:420px;
+    margin:0 auto 8px;
+  }
+  #chars{
+    display:flex;
+    flex-wrap:wrap;
+    gap:6px;
+    justify-content:center;
+    margin-bottom:8px;
+  }
+  .chip{
+    background:var(--card);
+    border-radius:20px;
+    padding:5px 12px;
+    font-size:0.8rem;
+    box-shadow:0 1px 4px rgba(0,0,0,0.1);
+    border-left:6px solid #ccc;
+  }
+  details{
+    background:var(--card);
+    border-radius:12px;
+    padding:8px 12px;
+    margin:8px auto;
+    max-width:420px;
+    box-shadow:0 1px 4px rgba(0,0,0,0.08);
+  }
+  summary{cursor:pointer;font-weight:600;font-size:0.9rem;}
+  .scene-block{margin:10px 0;padding-top:8px;border-top:1px dashed #ddd;}
+  .scene-block h3{margin:0 0 4px;font-size:0.9rem;color:var(--accent);}
+  .scene-block p{margin:3px 0;font-size:0.85rem;line-height:1.35;}
+  .note{
+    font-size:0.75rem;
+    color:#777;
+    text-align:center;
+    max-width:420px;
+    margin:6px auto 20px;
+    line-height:1.4;
+  }
+  footer{text-align:center;font-size:0.7rem;color:#999;margin-top:20px;}
+</style>
+</head>
+<body>
+<div id="app">
+  <h1>🎬 Türkçe Çizgi Film Üretici</h1>
+
+  <textarea id="promptInput" placeholder='Hikayeni yaz... örn: "Cesur bir kedi ile korkak bir fare ormanda hazine arıyor"'></textarea>
+
+  <div class="buttons">
+    <button id="genBtn">📝 Senaryo Oluştur</button>
+    <button id="playBtn" disabled>▶️ Oynat</button>
+    <button id="stopBtn" disabled>⏹️ Durdur</button>
+    <button id="recBtn" disabled>⏺️ Videoyu Kaydet</button>
+  </div>
+
+  <div id="status">Hikayeni yaz ve "Senaryo Oluştur" butonuna bas.</div>
+
+  <div id="meta">
+    <div id="chars"></div>
+  </div>
+
+  <div id="stage">
+    <canvas id="canvas" width="540" height="720"></canvas>
+  </div>
+
+  <div id="subtitle"></div>
+
+  <details id="scriptBox" style="display:none;">
+    <summary>📜 Senaryoyu Görüntüle</summary>
+    <div id="scriptView"></div>
+  </details>
+
+  <p class="note">
+    Not: Seslendirme cihazınızın tarayıcısındaki Türkçe sese bağlıdır; bazı cihazlarda Türkçe ses bulunmayabilir.
+    "Videoyu Kaydet" sırasında tarayıcı sekme sesini paylaşmanızı isteyebilir (ses kaydı için) — izin vermezseniz video sessiz olarak kaydedilir.
+  </p>
+
+  <footer>Tek dosyalık HTML uygulaması · Kayıt cihazınızda kalır, sunucuya yüklenmez.</footer>
+</div>
+
+<script>
+(function(){
+"use strict";
+
+/* ============================= VERİ TABANLARI ============================= */
+
+const ANIMALS = {
+  "kedi":   {label:"Kedi",   color:"#f4a261", ear:"pointy", tail:"long",   whiskers:true,  snout:"small"},
+  "fare":   {label:"Fare",   color:"#cfcbc4", ear:"round-big", tail:"thin-long", whiskers:true, snout:"pointy"},
+  "tilki":  {label:"Tilki",  color:"#e76f2e", ear:"pointy", tail:"fluffy", whiskers:true,  snout:"pointy", color2:"#fff6ea"},
+  "ayı":    {label:"Ayı",    color:"#8d5a3b", ear:"round",  tail:"short",  whiskers:false, snout:"round"},
+  "tavşan": {label:"Tavşan", color:"#f7f4ef", ear:"long",   tail:"poof",   whiskers:true,  snout:"small"},
+  "kurt":   {label:"Kurt",   color:"#8a8a8a", ear:"pointy", tail:"fluffy", whiskers:false, snout:"pointy"},
+  "köpek":  {label:"Köpek",  color:"#d19a5d", ear:"floppy", tail:"wag",    whiskers:false, snout:"medium"},
+  "kuş":    {label:"Kuş",    color:"#4aa3df", ear:"none",   tail:"feather",whiskers:false, snout:"beak", wings:true},
+  "aslan":  {label:"Aslan",  color:"#e3a83b", ear:"round",  tail:"tuft",   whiskers:true,  snout:"medium", mane:true, color2:"#b5701f"},
+  "kaplan": {label:"Kaplan", color:"#e8862c", ear:"round",  tail:"long",   whiskers:true,  snout:"medium", stripes:true, color2:"#3a2a1a"},
+  "panda":  {label:"Panda",  color:"#ffffff", ear:"round-big", tail:"short", whiskers:false, snout:"round", patches:true, color2:"#222222"},
+  "ejderha":{label:"Ejderha",color:"#5cb85c", ear:"horn",   tail:"long-spiky", whiskers:false, snout:"long", wings:true, color2:"#2f7a2f"},
+  "maymun": {label:"Maymun", color:"#a9714a", ear:"round",  tail:"long",   whiskers:false, snout:"medium", color2:"#e8d3b0"},
+  "zürafa": {label:"Zürafa", color:"#e8c169", ear:"round-small", tail:"long", whiskers:false, snout:"medium", longNeck:true, patches:true, color2:"#c98a2b"},
+  "fil":    {label:"Fil",    color:"#9fb4c7", ear:"round-huge", tail:"short", whiskers:false, snout:"round", trunk:true},
+  "baykuş": {label:"Baykuş", color:"#7d6350", ear:"tuft",   tail:"short",  whiskers:false, snout:"beak", wings:true},
+  "kurbağa":{label:"Kurbağa",color:"#7cb342", ear:"none",   tail:"none",   whiskers:false, snout:"round", bulgeEyes:true},
+  "sincap": {label:"Sincap", color:"#b5651d", ear:"round",  tail:"fluffy-big", whiskers:true, snout:"small"},
+  "at":     {label:"At",     color:"#7a5230", ear:"pointy-small", tail:"long", whiskers:false, snout:"long", mane:true, color2:"#3a2a1a"},
+  "koyun":  {label:"Koyun",  color:"#f5f0e6", ear:"floppy", tail:"short",  whiskers:false, snout:"medium", wool:true}
+};
+
+const ADJECTIVES = ["cesur","korkak","akıllı","tembel","meraklı","sevimli","güçlü","zayıf","hızlı","yavaş",
+  "küçük","büyük","komik","sinirli","mutlu","üzgün","yaramaz","uslu","nazik","kurnaz","unutkan","şakacı","alıngan","cömert"];
+
+const SETTINGS_MAP = {
+  "orman":"orman", "mağara":"magara", "nehir":"nehir", "çayır":"cayir", "dağ":"dag",
+  "göl":"gol", "deniz":"deniz", "uzay":"uzay", "şehir":"sehir", "çöl":"col", "orman.":"orman"
+};
+const BG_LABELS = {orman:"Orman", magara:"Mağara", nehir:"Nehir", cayir:"Çayır", dag:"Dağ",
+  gol:"Göl", deniz:"Deniz", uzay:"Uzay", sehir:"Şehir", col:"Çöl"};
+const ALL_BGS = Object.keys(BG_LABELS);
+
+const GOAL_TEXTS = {
+  "hazine":"hazineyi", "macera":"büyük bir macerayı", "anahtar":"kayıp anahtarı", "yuva":"sıcak bir yuva",
+  "arkadaş":"yeni bir arkadaş", "yemek":"lezzetli bir yemek", "harita":"gizemli haritayı",
+  "yıldız":"parlayan yıldızı", "ışık":"parlayan ışığı", "müzik":"kayıp şarkıyı", "define":"defineyi"
+};
+
+/* ============================= YARDIMCI FONKSİYONLAR ============================= */
+
+function pick(arr){ return arr[Math.floor(Math.random()*arr.length)]; }
+function cap(s){ if(!s) return s; return s.charAt(0).toLocaleUpperCase('tr-TR')+s.slice(1); }
+function sleep(ms){ return new Promise(r=>setTimeout(r,ms)); }
+function wordMatchesKey(word,key){ return word===key || (key.length>=3 && word.startsWith(key)); }
+
+/* ============================= PROMPT ANALİZİ ============================= */
+
+function parsePrompt(text){
+  const words = text.split(/[^0-9a-zA-ZçÇğĞıİöÖşŞüÜ]+/).filter(Boolean).map(w=>w.toLocaleLowerCase('tr-TR'));
+  const animalKeys = Object.keys(ANIMALS);
+  const settingKeys = Object.keys(SETTINGS_MAP);
+  const goalKeys = Object.keys(GOAL_TEXTS);
+
+  let found = [];
+  words.forEach((w,i)=>{
+    if(found.length>=4) return;
+    const key = animalKeys.find(k=>wordMatchesKey(w,k));
+    if(key && !found.some(f=>f.animal===key)){
+      let trait = null;
+      for(let j=Math.max(0,i-4); j<i; j++){
+        const aKey = ADJECTIVES.find(k=>wordMatchesKey(words[j],k));
+        if(aKey) trait = aKey;
+      }
+      found.push({animal:key, trait});
+    }
+  });
+
+  if(found.length===0){
+    found = [{animal:"kedi",trait:"cesur"},{animal:"fare",trait:"korkak"}];
+  } else if(found.length===1){
+    const altKey = found[0].animal==="fare" ? "kedi" : "fare";
+    found.push({animal:altKey, trait:"meraklı"});
+  }
+
+  let setting = null;
+  for(const w of words){
+    const key = settingKeys.find(k=>wordMatchesKey(w,k));
+    if(key){ setting = SETTINGS_MAP[key]; break; }
+  }
+  if(!setting) setting = "orman";
+
+  let goalWord = null;
+  for(const w of words){
+    const key = goalKeys.find(k=>wordMatchesKey(w,k));
+    if(key){ goalWord = key; break; }
+  }
+
+  const characters = found.map(f=>{
+    const def = ANIMALS[f.animal];
+    const traitKey = f.trait || "sevimli";
+    return {
+      animal:f.animal, label:def.label, trait:traitKey,
+      traitLabel:cap(traitKey), color:def.color, def
+    };
+  });
+
+  return {characters, setting, goalWord};
+}
+
+/* ============================= SENARYO ÜRETİMİ ============================= */
+
+function buildBgSequence(setting, n){
+  let others = ALL_BGS.filter(b=>b!==setting);
+  for(let i=others.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [others[i],others[j]]=[others[j],others[i]]; }
+  let seq = [setting];
+  for(let i=0;i<n-2;i++) seq.push(others[i%others.length]);
+  seq.push(setting);
+  return seq.slice(0,n);
+}
+
+function buildScenes(parsed){
+  const chars = parsed.characters;
+  const n = chars.length;
+  const c = i => chars[i % n];
+  const goalText = parsed.goalWord ? (GOAL_TEXTS[parsed.goalWord] || (parsed.goalWord+"yi bulmayı")) : "büyük bir macerayı";
+  const bgSeq = buildBgSequence(parsed.setting, 5);
+
+  const korkakIdx = chars.findIndex(ch=>ch.trait==="korkak" || ch.trait==="çekingen" || ch.trait==="üzgün");
+  const cesurIdx = chars.findIndex((ch,i)=> (ch.trait==="cesur" || ch.trait==="güçlü") && i!==korkakIdx);
+
+  const scenes = [];
+
+  scenes.push({
+    bg:bgSeq[0], title:"Tanışma",
+    dialogue:[
+      {char:0, text:`Merhaba! Ben ${c(0).traitLabel} bir ${c(0).label}. Bugün ${goalText} bulmak için yola çıkıyorum!`},
+      {char:n>1?1:0, text:n>1?`Ben de geliyorum! Ben ${c(1).traitLabel} bir ${c(1).label}, birlikte daha güçlüyüz.`:`Hazırım, hemen maceraya başlayalım!`}
+    ]
+  });
+
+  scenes.push({
+    bg:bgSeq[1], title:"Yolculuk Başlıyor",
+    dialogue:[
+      {char:0, text:pick(["Vay canına, burası ne kadar büyükmüş!","Bakın, yol buradan devam ediyor.","Hislerim bana doğru yolda olduğumuzu söylüyor."])},
+      {char:n>1?1:0, text:pick(["Dikkatli olalım, her adımı iyi düşünelim.","Ben az önce ilginç bir iz gördüm!","Hadi durmadan ilerleyelim."])}
+    ]
+  });
+  if(n>=3) scenes[1].dialogue.push({char:2, text:pick(["Ben yolu kontrol ediyorum, endişelenmeyin!","Kokusunu alıyorum, çok yakınız sanırım."])});
+
+  scenes.push({
+    bg:bgSeq[2], title:"Beklenmedik Engel",
+    dialogue:[
+      {char:korkakIdx>=0?korkakIdx:0, text:korkakIdx>=0?"Aaa! Burası çok karanlık, biraz korkuyorum...":"Dikkat! Önümüzde bir engel var."},
+      {char:(cesurIdx>=0 && cesurIdx!==(korkakIdx>=0?korkakIdx:0))?cesurIdx:(n>1?1:0), text:pick(["Korkma, ben yanındayım, birlikte aşarız bunu!","Sakin ol, güzel bir plan yapalım.","Hep birlikte çok daha güçlüyüz!"])}
+    ]
+  });
+
+  scenes.push({
+    bg:bgSeq[3], title:"Birlikte Çözüyorlar",
+    dialogue:[
+      {char:0, text:pick(["Bakın, burada bir işaret var!","Sanırım doğru yoldayız.","Şuna bakın, çok ilginç bir şey buldum."])},
+      {char:n>1?1:0, text:pick(["Harika buluş! Hadi devam edelim.","Bir dakika daha ve oraya varmış olacağız.","Bu bizi hedefimize götürecek!"])}
+    ]
+  });
+  if(n>=4) scenes[3].dialogue.push({char:3, text:pick(["Ben de size eşlik ediyorum, hadi gidelim!","Bakın gökyüzü nasıl da güzel şimdi."])});
+
+  scenes.push({
+    bg:bgSeq[4], title:"Mutlu Son",
+    dialogue:[
+      {char:0, text:`İşte burada! Sonunda ${goalText} bulduk!`},
+      {char:n>1?1:0, text:pick(["Seninle bu maceraya çıktığım için çok mutluyum.","Birlikte başaramayacağımız hiçbir şey yok!","En iyi arkadaşlar birlikte kazanır!"])}
+    ]
+  });
+
+  return scenes;
+}
+
+/* ============================= CANVAS ÇİZİM ============================= */
+
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+const W = canvas.width, H = canvas.height;
+const GROUND_Y = H*0.74;
+
+function skyGrad(topC, botC){
+  const g = ctx.createLinearGradient(0,0,0,GROUND_Y);
+  g.addColorStop(0, topC); g.addColorStop(1, botC);
+  return g;
+}
+
+function drawSun(x,y,r,color){
+  ctx.save();
+  ctx.fillStyle = color;
+  ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill();
+  ctx.restore();
+}
+
+function drawCloud(x,y,scale){
+  ctx.save();
+  ctx.fillStyle = "rgba(255,255,255,0.85)";
+  ctx.beginPath();
+  ctx.ellipse(x,y,28*scale,16*scale,0,0,Math.PI*2);
+  ctx.ellipse(x+22*scale,y-8*scale,20*scale,14*scale,0,0,Math.PI*2);
+  ctx.ellipse(x-22*scale,y-4*scale,18*scale,12*scale,0,0,Math.PI*2);
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawTree(x,y,scale){
+  ctx.save();
+  ctx.translate(x,y);
+  ctx.scale(scale,scale);
+  ctx.fillStyle = "#7a4a2b";
+  ctx.fillRect(-6,-10,12,40);
+  ctx.fillStyle = "#3f9142";
+  ctx.beginPath(); ctx.moveTo(-38,-10); ctx.lineTo(38,-10); ctx.lineTo(0,-64); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = "#4caf50";
+  ctx.beginPath(); ctx.moveTo(-30,-34); ctx.lineTo(30,-34); ctx.lineTo(0,-80); ctx.closePath(); ctx.fill();
+  ctx.restore();
+}
+
+function drawBush(x,y,scale,color){
+  ctx.save();
+  ctx.fillStyle = color||"#5cb85c";
+  ctx.beginPath();
+  ctx.ellipse(x,y,26*scale,16*scale,0,0,Math.PI*2);
+  ctx.ellipse(x-18*scale,y+4*scale,16*scale,12*scale,0,0,Math.PI*2);
+  ctx.ellipse(x+18*scale,y+4*scale,16*scale,12*scale,0,0,Math.PI*2);
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawFlower(x,y,scale,color){
+  ctx.save();
+  ctx.translate(x,y); ctx.scale(scale,scale);
+  ctx.strokeStyle="#3f9142"; ctx.lineWidth=2;
+  ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(0,14); ctx.stroke();
+  ctx.fillStyle = color;
+  for(let i=0;i<5;i++){
+    const a = i*(Math.PI*2/5);
+    ctx.beginPath(); ctx.ellipse(Math.cos(a)*5, Math.sin(a)*5, 4,3,a,0,Math.PI*2); ctx.fill();
+  }
+  ctx.fillStyle="#ffd93d";
+  ctx.beginPath(); ctx.arc(0,0,3,0,Math.PI*2); ctx.fill();
+  ctx.restore();
+}
+
+function drawStar(x,y,r,op){
+  ctx.save();
+  ctx.globalAlpha = op;
+  ctx.fillStyle = "#fff";
+  ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill();
+  ctx.restore();
+}
+
+function drawMountainShape(x,y,w,h,color,snow){
+  ctx.save();
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(x-w/2,y); ctx.lineTo(x,y-h); ctx.lineTo(x+w/2,y); ctx.closePath(); ctx.fill();
+  if(snow){
+    ctx.fillStyle="#fff";
+    ctx.beginPath();
+    ctx.moveTo(x-w*0.12,y-h*0.72); ctx.lineTo(x,y-h); ctx.lineTo(x+w*0.12,y-h*0.72);
+    ctx.lineTo(x+w*0.04,y-h*0.66); ctx.lineTo(x-w*0.04,y-h*0.66); ctx.closePath(); ctx.fill();
+  }
+  ctx.restore();
+}
+
+function makeBgLayout(key){
+  const rnd = ()=>Math.random();
+  const layout = {key};
+  if(key==="orman"){
+    layout.trees = Array.from({length:6},()=>({x:rnd()*W, scale:0.6+rnd()*0.6}));
+    layout.bushes = Array.from({length:4},()=>({x:rnd()*W, scale:0.6+rnd()*0.5}));
+    layout.clouds = Array.from({length:3},()=>({x:rnd()*W, y:40+rnd()*60, scale:0.6+rnd()*0.6}));
+  } else if(key==="magara"){
+    layout.stalactites = Array.from({length:7},()=>({x:rnd()*W, len:30+rnd()*70, w:16+rnd()*20}));
+    layout.rocks = Array.from({length:5},()=>({x:rnd()*W, scale:0.6+rnd()*0.8}));
+    layout.crystals = Array.from({length:5},()=>({x:rnd()*W, y:GROUND_Y-10-rnd()*40, color:pick(["#7ee8fa","#ff9de2","#c8ff9e"])}));
+  } else if(key==="nehir"){
+    layout.trees = Array.from({length:3},()=>({x:rnd()*W*0.4, scale:0.5+rnd()*0.4}));
+    layout.trees2 = Array.from({length:3},()=>({x:W*0.6+rnd()*W*0.4, scale:0.5+rnd()*0.4}));
+    layout.stones = Array.from({length:5},()=>({x:rnd()*W, scale:0.5+rnd()*0.5}));
+    layout.clouds = Array.from({length:2},()=>({x:rnd()*W, y:40+rnd()*50, scale:0.5+rnd()*0.5}));
+  } else if(key==="cayir"){
+    layout.flowers = Array.from({length:10},()=>({x:rnd()*W, y:GROUND_Y+10+rnd()*(H-GROUND_Y-30), scale:0.7+rnd()*0.6, color:pick(["#ff6b6b","#ffd93d","#a78bfa","#ff9de2"])}));
+    layout.clouds = Array.from({length:3},()=>({x:rnd()*W, y:40+rnd()*60, scale:0.6+rnd()*0.6}));
+    layout.bushes = Array.from({length:3},()=>({x:rnd()*W, scale:0.5+rnd()*0.4}));
+  } else if(key==="dag"){
+    layout.peaks = [
+      {x:W*0.2, w:220, h:180+rnd()*40, color:"#8a8fa3"},
+      {x:W*0.55, w:260, h:230+rnd()*40, color:"#7c8195"},
+      {x:W*0.85, w:200, h:170+rnd()*40, color:"#9096a8"}
+    ];
+    layout.clouds = Array.from({length:2},()=>({x:rnd()*W, y:60+rnd()*40, scale:0.6+rnd()*0.5}));
+  } else if(key==="gol"){
+    layout.lilies = Array.from({length:6},()=>({x:rnd()*W, y:GROUND_Y+20+rnd()*(H-GROUND_Y-40), scale:0.6+rnd()*0.6}));
+    layout.trees = Array.from({length:4},()=>({x:rnd()*W, y:GROUND_Y-10, scale:0.35+rnd()*0.3}));
+    layout.clouds = Array.from({length:2},()=>({x:rnd()*W, y:40+rnd()*40, scale:0.5+rnd()*0.5}));
+  } else if(key==="deniz"){
+    layout.birds = Array.from({length:3},()=>({x:rnd()*W, y:60+rnd()*80}));
+  } else if(key==="uzay"){
+    layout.stars = Array.from({length:50},()=>({x:rnd()*W, y:rnd()*GROUND_Y, r:0.8+rnd()*1.8, phase:rnd()*10}));
+    layout.planets = [
+      {x:W*0.2, y:H*0.18, r:26, color:"#ff9de2", ring:false},
+      {x:W*0.8, y:H*0.28, r:18, color:"#7ee8fa", ring:true}
+    ];
+  } else if(key==="sehir"){
+    let x=0; layout.buildings=[];
+    while(x<W){
+      const w = 40+rnd()*50;
+      layout.buildings.push({x, w, h:100+rnd()*160, color:pick(["#5c6b8a","#4a5878","#6b7a9a"])});
+      x+=w+4;
+    }
+  } else if(key==="col"){
+    layout.dunes = Array.from({length:4},()=>({x:rnd()*W, w:180+rnd()*120, h:30+rnd()*30}));
+    layout.cacti = Array.from({length:4},()=>({x:rnd()*W, scale:0.6+rnd()*0.6}));
+  }
+  return layout;
+}
+
+function drawBackground(key, t, decor){
+  ctx.save();
+  if(key==="orman"){
+    ctx.fillStyle = skyGrad("#bfe9ff","#eaffea"); ctx.fillRect(0,0,W,GROUND_Y);
+    drawSun(W*0.82,80,36,"#ffe066");
+    decor.clouds.forEach(c=>drawCloud(c.x+Math.sin(t*0.1+c.x)*10, c.y, c.scale));
+    ctx.fillStyle = "#6cc069"; ctx.fillRect(0,GROUND_Y,W,H-GROUND_Y);
+    decor.bushes.forEach(b=>drawBush(b.x,GROUND_Y+18,b.scale));
+    decor.trees.forEach(tr=>drawTree(tr.x,GROUND_Y+20,tr.scale));
+  } else if(key==="magara"){
+    ctx.fillStyle = skyGrad("#241b3a","#4a3a63"); ctx.fillRect(0,0,W,GROUND_Y);
+    ctx.fillStyle = "#3a2d55"; ctx.fillRect(0,GROUND_Y,W,H-GROUND_Y);
+    decor.stalactites.forEach(s=>{
+      ctx.fillStyle="#2b2140";
+      ctx.beginPath(); ctx.moveTo(s.x-s.w/2,0); ctx.lineTo(s.x+s.w/2,0); ctx.lineTo(s.x,s.len); ctx.closePath(); ctx.fill();
+    });
+    decor.rocks.forEach(r=>{
+      ctx.fillStyle="#1f1733";
+      ctx.beginPath(); ctx.ellipse(r.x,GROUND_Y+18,30*r.scale,16*r.scale,0,0,Math.PI*2); ctx.fill();
+    });
+    decor.crystals.forEach(c=>{
+      const glow = 0.5+0.5*Math.abs(Math.sin(t*2+c.x));
+      ctx.globalAlpha = glow;
+      ctx.fillStyle = c.color;
+      ctx.beginPath(); ctx.moveTo(c.x,c.y-14); ctx.lineTo(c.x+7,c.y); ctx.lineTo(c.x,c.y+8); ctx.lineTo(c.x-7,c.y); ctx.closePath(); ctx.fill();
+      ctx.globalAlpha = 1;
+    });
+  } else if(key==="nehir"){
+    ctx.fillStyle = skyGrad("#bfe9ff","#eaffea"); ctx.fillRect(0,0,W,GROUND_Y);
+    decor.clouds.forEach(c=>drawCloud(c.x,c.y,c.scale));
+    ctx.fillStyle="#6cc069"; ctx.fillRect(0,GROUND_Y,W,H-GROUND_Y);
+    decor.trees.forEach(tr=>drawTree(tr.x,GROUND_Y+18,tr.scale));
+    decor.trees2.forEach(tr=>drawTree(tr.x,GROUND_Y+18,tr.scale));
+    const riverTop = GROUND_Y+34, riverBot = H;
+    ctx.fillStyle="#3aa0d1";
+    ctx.beginPath(); ctx.moveTo(0,riverTop); ctx.lineTo(W,riverTop); ctx.lineTo(W,riverBot); ctx.lineTo(0,riverBot); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle="rgba(255,255,255,0.5)"; ctx.lineWidth=3;
+    for(let i=0;i<4;i++){
+      ctx.beginPath();
+      const yy = riverTop+14+i*16;
+      for(let x=0;x<=W;x+=20){
+        const yy2 = yy + Math.sin(t*2+x*0.05+i)*4;
+        if(x===0) ctx.moveTo(x,yy2); else ctx.lineTo(x,yy2);
+      }
+      ctx.stroke();
+    }
+    decor.stones.forEach(s=>{
+      ctx.fillStyle="#9a958c";
+      ctx.beginPath(); ctx.ellipse(s.x,riverTop+8,18*s.scale,9*s.scale,0,0,Math.PI*2); ctx.fill();
+    });
+  } else if(key==="cayir"){
+    ctx.fillStyle = skyGrad("#cdeeff","#f5ffe0"); ctx.fillRect(0,0,W,GROUND_Y);
+    drawSun(W*0.85,70,32,"#ffe066");
+    decor.clouds.forEach(c=>drawCloud(c.x,c.y,c.scale));
+    ctx.fillStyle="#8fd45a"; ctx.fillRect(0,GROUND_Y,W,H-GROUND_Y);
+    decor.bushes.forEach(b=>drawBush(b.x,GROUND_Y+14,b.scale,"#7bc94c"));
+    decor.flowers.forEach(f=>drawFlower(f.x,f.y,f.scale,f.color));
+  } else if(key==="dag"){
+    ctx.fillStyle = skyGrad("#a9c8e8","#e6eef5"); ctx.fillRect(0,0,W,GROUND_Y);
+    decor.clouds.forEach(c=>drawCloud(c.x,c.y,c.scale));
+    decor.peaks.forEach(p=>drawMountainShape(p.x,GROUND_Y,p.w,p.h,p.color,true));
+    ctx.fillStyle="#b9c4a9"; ctx.fillRect(0,GROUND_Y,W,H-GROUND_Y);
+  } else if(key==="gol"){
+    ctx.fillStyle = skyGrad("#bfe9ff","#eaffea"); ctx.fillRect(0,0,W,GROUND_Y);
+    decor.clouds.forEach(c=>drawCloud(c.x,c.y,c.scale));
+    ctx.fillStyle="#6cc069"; ctx.fillRect(0,GROUND_Y,W,H-GROUND_Y);
+    decor.trees.forEach(tr=>drawTree(tr.x,tr.y,tr.scale));
+    ctx.fillStyle="#4fb3d9";
+    ctx.beginPath(); ctx.ellipse(W/2,GROUND_Y+ (H-GROUND_Y)/2+10,W*0.48,(H-GROUND_Y)/2,0,0,Math.PI*2); ctx.fill();
+    decor.lilies.forEach(l=>{
+      ctx.fillStyle="#3f9142";
+      ctx.beginPath(); ctx.ellipse(l.x,l.y,16*l.scale,7*l.scale,0,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle="#ff9de2";
+      ctx.beginPath(); ctx.arc(l.x,l.y,3*l.scale,0,Math.PI*2); ctx.fill();
+    });
+  } else if(key==="deniz"){
+    ctx.fillStyle = skyGrad("#ffd6a5","#8ecae6"); ctx.fillRect(0,0,W,GROUND_Y);
+    drawSun(W*0.5,H*0.32,40,"#ffb347");
+    decor.birds.forEach(b=>{
+      ctx.strokeStyle="#333"; ctx.lineWidth=2;
+      const flap = Math.sin(t*4+b.x)*6;
+      ctx.beginPath();
+      ctx.moveTo(b.x-10,b.y); ctx.quadraticCurveTo(b.x-4,b.y-6-flap,b.x,b.y);
+      ctx.quadraticCurveTo(b.x+4,b.y-6-flap,b.x+10,b.y);
+      ctx.stroke();
+    });
+    ctx.fillStyle="#3a8fb7"; ctx.fillRect(0,GROUND_Y,W,H-GROUND_Y);
+    ctx.strokeStyle="rgba(255,255,255,0.45)"; ctx.lineWidth=3;
+    for(let i=0;i<5;i++){
+      ctx.beginPath();
+      const yy = GROUND_Y+12+i*18;
+      for(let x=0;x<=W;x+=20){
+        const yy2 = yy+Math.sin(t*2.4+x*0.06+i)*5;
+        if(x===0) ctx.moveTo(x,yy2); else ctx.lineTo(x,yy2);
+      }
+      ctx.stroke();
+    }
+  } else if(key==="uzay"){
+    ctx.fillStyle = "#0a0a1a"; ctx.fillRect(0,0,W,H);
+    decor.stars.forEach(s=>{
+      const op = 0.4+0.6*Math.abs(Math.sin(t*1.5+s.phase));
+      drawStar(s.x,s.y,s.r,op);
+    });
+    decor.planets.forEach(p=>{
+      ctx.fillStyle=p.color;
+      ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,Math.PI*2); ctx.fill();
+      if(p.ring){
+        ctx.strokeStyle=p.color; ctx.lineWidth=4; ctx.globalAlpha=0.6;
+        ctx.beginPath(); ctx.ellipse(p.x,p.y,p.r*1.7,p.r*0.5,-0.3,0,Math.PI*2); ctx.stroke();
+        ctx.globalAlpha=1;
+      }
+    });
+    ctx.fillStyle="#1c1c3a"; ctx.fillRect(0,GROUND_Y,W,H-GROUND_Y);
+  } else if(key==="sehir"){
+    ctx.fillStyle = skyGrad("#5b6fa8","#e8c9a0"); ctx.fillRect(0,0,W,GROUND_Y);
+    drawSun(W*0.2,H*0.2,26,"#ffd88a");
+    decor.buildings.forEach(b=>{
+      ctx.fillStyle=b.color;
+      ctx.fillRect(b.x,GROUND_Y-b.h,b.w,b.h);
+      ctx.fillStyle="rgba(255,230,140,0.8)";
+      for(let wy=GROUND_Y-b.h+12; wy<GROUND_Y-10; wy+=18){
+        for(let wx=b.x+8; wx<b.x+b.w-8; wx+=16){
+          if((wx+wy)%3===0) ctx.fillRect(wx,wy,7,10);
+        }
+      }
+    });
+    ctx.fillStyle="#5c5c66"; ctx.fillRect(0,GROUND_Y,W,H-GROUND_Y);
+  } else if(key==="col"){
+    ctx.fillStyle = skyGrad("#ffe1b8","#ffd18a"); ctx.fillRect(0,0,W,GROUND_Y);
+    drawSun(W*0.78,80,34,"#ff9f4a");
+    ctx.fillStyle="#edc98a"; ctx.fillRect(0,GROUND_Y,W,H-GROUND_Y);
+    decor.dunes.forEach(d=>{
+      ctx.fillStyle="#e0b46f";
+      ctx.beginPath(); ctx.ellipse(d.x,GROUND_Y,d.w/2,d.h,0,Math.PI,0); ctx.fill();
+    });
+    decor.cacti.forEach(cc=>{
+      ctx.save(); ctx.translate(cc.x,GROUND_Y+10); ctx.scale(cc.scale,cc.scale);
+      ctx.fillStyle="#4d8f5b";
+      ctx.fillRect(-6,-50,12,50);
+      ctx.fillRect(-22,-34,12,20);
+      ctx.fillRect(10,-40,12,24);
+      ctx.restore();
+    });
+  }
+  ctx.restore();
+}
+
+/* ---- Karakter çizimi ---- */
+
+function drawEyes(cx,cy,blink){
+  const h = blink ? 1 : 8;
+  ctx.fillStyle="#fff";
+  ctx.beginPath(); ctx.ellipse(cx-9,cy,7,h,0,0,Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(cx+9,cy,7,h,0,0,Math.PI*2); ctx.fill();
+  if(!blink){
+    ctx.fillStyle="#2d2a3d";
+    ctx.beginPath(); ctx.arc(cx-8,cy+1,3.2,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(cx+10,cy+1,3.2,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle="#fff";
+    ctx.beginPath(); ctx.arc(cx-9,cy-0.5,1,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(cx+9,cy-0.5,1,0,Math.PI*2); ctx.fill();
+  }
+}
+
+function drawEars(shape,r,color){
+  ctx.fillStyle = color;
+  function tri(dx,dy,w,h,rot){
+    ctx.save(); ctx.translate(dx,dy); ctx.rotate(rot);
+    ctx.beginPath(); ctx.moveTo(-w/2,h/2); ctx.lineTo(w/2,h/2); ctx.lineTo(0,-h/2); ctx.closePath(); ctx.fill();
+    ctx.restore();
+  }
+  function oval(dx,dy,w,h,rot){
+    ctx.save(); ctx.translate(dx,dy); ctx.rotate(rot);
+    ctx.beginPath(); ctx.ellipse(0,0,w,h,0,0,Math.PI*2); ctx.fill();
+    ctx.restore();
+  }
+  if(shape==="pointy"){ tri(-r*0.7,-r*0.9,r*0.6,r*0.9,-0.2); tri(r*0.7,-r*0.9,r*0.6,r*0.9,0.2); }
+  else if(shape==="pointy-small"){ tri(-r*0.55,-r*0.85,r*0.4,r*0.6,-0.1); tri(r*0.55,-r*0.85,r*0.4,r*0.6,0.1); }
+  else if(shape==="round"){ oval(-r*0.75,-r*0.85,r*0.32,r*0.4,0); oval(r*0.75,-r*0.85,r*0.32,r*0.4,0); }
+  else if(shape==="round-small"){ oval(-r*0.6,-r*0.8,r*0.22,r*0.28,0); oval(r*0.6,-r*0.8,r*0.22,r*0.28,0); }
+  else if(shape==="round-big"){ oval(-r*0.75,-r*0.85,r*0.45,r*0.55,0); oval(r*0.75,-r*0.85,r*0.45,r*0.55,0); }
+  else if(shape==="round-huge"){ oval(-r*0.95,-r*0.6,r*0.65,r*0.8,0); oval(r*0.95,-r*0.6,r*0.65,r*0.8,0); }
+  else if(shape==="long"){ oval(-r*0.5,-r*1.5,r*0.24,r*0.9,-0.1); oval(r*0.5,-r*1.5,r*0.24,r*0.9,0.1); }
+  else if(shape==="floppy"){ oval(-r*0.85,-r*0.5,r*0.3,r*0.7,-0.4); oval(r*0.85,-r*0.5,r*0.3,r*0.7,0.4); }
+  else if(shape==="tuft"){ tri(-r*0.6,-r*0.95,r*0.3,r*0.5,-0.15); tri(r*0.6,-r*0.95,r*0.3,r*0.5,0.15); }
+  else if(shape==="horn"){
+    ctx.fillStyle=color;
+    tri(-r*0.55,-r*1.0,r*0.3,r*0.8,-0.05); tri(r*0.55,-r*1.0,r*0.3,r*0.8,0.05);
+  }
+}
+
+function drawTail(shape,bodyR,color,t,phase){
+  const wag = Math.sin(t*3+phase)*0.3;
+  ctx.save();
+  ctx.translate(-bodyR*0.9, bodyR*0.2);
+  ctx.rotate(0.5+wag*0.4);
+  ctx.fillStyle = color;
+  if(shape==="long" || shape==="thin-long" || shape==="long-spiky"){
+    ctx.beginPath(); ctx.ellipse(0,0,bodyR*0.9,bodyR*0.16,0,0,Math.PI*2); ctx.fill();
+  } else if(shape==="fluffy" || shape==="fluffy-big"){
+    ctx.beginPath(); ctx.ellipse(0,0,bodyR*0.7,bodyR*0.35,0,0,Math.PI*2); ctx.fill();
+  } else if(shape==="poof"){
+    ctx.beginPath(); ctx.arc(0,0,bodyR*0.3,0,Math.PI*2); ctx.fill();
+  } else if(shape==="short"){
+    ctx.beginPath(); ctx.ellipse(0,0,bodyR*0.32,bodyR*0.18,0,0,Math.PI*2); ctx.fill();
+  } else if(shape==="wag"){
+    ctx.beginPath(); ctx.ellipse(0,0,bodyR*0.6,bodyR*0.18,0,0,Math.PI*2); ctx.fill();
+  } else if(shape==="tuft"){
+    ctx.beginPath(); ctx.ellipse(0,0,bodyR*0.7,bodyR*0.14,0,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(-bodyR*0.65,0,bodyR*0.22,0,Math.PI*2); ctx.fill();
+  } else if(shape==="feather"){
+    ctx.beginPath(); ctx.ellipse(0,0,bodyR*0.5,bodyR*0.24,0,0,Math.PI*2); ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawCharacter(cs, x, y, scale, t){
+  const def = cs.def;
+  const bounceIdle = Math.sin(t*2+cs.phase)*6;
+  const bounceTalk = cs.speaking ? Math.sin(t*9+cs.phase)*3 : 0;
+  const sway = Math.sin(t*1.3+cs.phase)*0.05 + (cs.speaking?Math.sin(t*6+cs.phase)*0.03:0);
+  const bodyR = 46*scale;
+  const headR = 34*scale;
+
+  // gölge
+  ctx.save();
+  ctx.globalAlpha=0.22; ctx.fillStyle="#000";
+  ctx.beginPath(); ctx.ellipse(x,y+bodyR*0.9,bodyR*0.9,bodyR*0.22,0,0,Math.PI*2); ctx.fill();
+  ctx.restore();
+
+  ctx.save();
+  ctx.translate(x, y+bounceIdle+bounceTalk);
+  ctx.rotate(sway);
+  ctx.scale(scale,scale);
+
+  const bodyR0 = 46, headR0 = 34;
+  const col = cs.color, col2 = def.color2 || "#00000022";
+
+  // kuyruk
+  if(def.tail && def.tail!=="none") drawTail(def.tail, bodyR0, col, t, cs.phase);
+
+  // bacaklar
+  ctx.fillStyle = col;
+  ctx.beginPath(); ctx.ellipse(-16, bodyR0*0.85, 11,14,0,0,Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(16, bodyR0*0.85, 11,14,0,0,Math.PI*2); ctx.fill();
+
+  // gövde
+  ctx.fillStyle = col;
+  ctx.beginPath(); ctx.ellipse(0,10,bodyR0*0.82,bodyR0*0.72,0,0,Math.PI*2); ctx.fill();
+
+  // yün dokusu (koyun)
+  if(def.wool){
+    ctx.fillStyle = "rgba(255,255,255,0.9)";
+    for(let i=0;i<6;i++){
+      const a = i*(Math.PI*2/6);
+      ctx.beginPath(); ctx.arc(Math.cos(a)*22, 10+Math.sin(a)*18, 10,0,Math.PI*2); ctx.fill();
+    }
+  }
+
+  // kanatlar
+  if(def.wings){
+    ctx.fillStyle = col2 !== "#00000022" ? col2 : "#ffffffcc";
+    const flap = Math.sin(t*6+cs.phase)*10;
+    ctx.beginPath(); ctx.ellipse(-bodyR0*0.75, 4+flap, 20,12,0.4,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(bodyR0*0.75, 4-flap, 20,12,-0.4,0,Math.PI*2); ctx.fill();
+  }
+
+  // hortum (fil)
+  if(def.trunk){
+    ctx.strokeStyle = col; ctx.lineWidth=14; ctx.lineCap="round";
+    ctx.beginPath();
+    ctx.moveTo(0,-headR0*0.55+headR0-4);
+    ctx.quadraticCurveTo(18,-headR0*0.1+headR0, 8, headR0*0.55+headR0);
+    ctx.stroke();
+  }
+
+  // uzun boyun (zürafa)
+  const headOffsetY = def.longNeck ? -headR0*2.1 : -headR0*1.15;
+  if(def.longNeck){
+    ctx.fillStyle = col;
+    ctx.fillRect(-10, headOffsetY+headR0*0.6, 20, headR0*1.4);
+  }
+
+  // baş
+  const hx=0, hy=headOffsetY;
+  ctx.fillStyle = col;
+  ctx.beginPath(); ctx.arc(hx,hy,headR0,0,Math.PI*2); ctx.fill();
+
+  // yele (aslan/at)
+  if(def.mane){
+    ctx.fillStyle = col2;
+    for(let i=0;i<10;i++){
+      const a = i*(Math.PI*2/10);
+      ctx.beginPath(); ctx.ellipse(hx+Math.cos(a)*headR0*0.95, hy+Math.sin(a)*headR0*0.95, 12,7,a,0,Math.PI*2); ctx.fill();
+    }
+    ctx.fillStyle = col;
+    ctx.beginPath(); ctx.arc(hx,hy,headR0*0.92,0,Math.PI*2); ctx.fill();
+  }
+
+  // çizgi/leke desenleri
+  if(def.stripes){
+    ctx.strokeStyle = col2; ctx.lineWidth=5;
+    for(let i=-2;i<=2;i++){ ctx.beginPath(); ctx.moveTo(hx-headR0*0.7, hy+i*8); ctx.lineTo(hx+headR0*0.7, hy+i*8+6); ctx.stroke(); }
+  }
+  if(def.patches){
+    ctx.fillStyle = col2;
+    ctx.beginPath(); ctx.ellipse(hx-headR0*0.55,hy-headR0*0.3,headR0*0.32,headR0*0.4,0.3,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(hx+headR0*0.55,hy-headR0*0.3,headR0*0.32,headR0*0.4,-0.3,0,Math.PI*2); ctx.fill();
+  }
+
+  // kulaklar
+  ctx.save(); ctx.translate(hx,hy);
+  drawEars(def.ear, headR0, col);
+  ctx.restore();
+
+  // yanaklar
+  ctx.fillStyle="rgba(255,140,140,0.55)";
+  ctx.beginPath(); ctx.ellipse(hx-headR0*0.55,hy+headR0*0.25,7,5,0,0,Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(hx+headR0*0.55,hy+headR0*0.25,7,5,0,0,Math.PI*2); ctx.fill();
+
+  // gözler
+  const blinkCycle=4.0;
+  const localT = (t + cs.phase*2.7) % blinkCycle;
+  const blink = localT > blinkCycle-0.15;
+  drawEyes(hx,hy-headR0*0.1, def.bulgeEyes? false:blink);
+
+  if(def.bulgeEyes){
+    ctx.fillStyle="#fff";
+    ctx.beginPath(); ctx.arc(hx-14,hy-headR0*0.7,9,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(hx+14,hy-headR0*0.7,9,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle="#2d2a3d";
+    ctx.beginPath(); ctx.arc(hx-14,hy-headR0*0.7,4,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(hx+14,hy-headR0*0.7,4,0,Math.PI*2); ctx.fill();
+  }
+
+  // bıyıklar
+  if(def.whiskers){
+    ctx.strokeStyle="rgba(0,0,0,0.35)"; ctx.lineWidth=1.5;
+    [-1,1].forEach(side=>{
+      for(let i=-1;i<=1;i++){
+        ctx.beginPath();
+        ctx.moveTo(hx+side*headR0*0.5, hy+headR0*0.35+i*4);
+        ctx.lineTo(hx+side*(headR0*0.5+16), hy+headR0*0.32+i*6);
+        ctx.stroke();
+      }
+    });
+  }
+
+  // ağız / gaga
+  const mouthOpen = cs.speaking ? (0.35+0.65*Math.abs(Math.sin(t*15+cs.phase))) : 0.08;
+  const my = hy+headR0*0.42;
+  if(def.snout==="beak"){
+    ctx.fillStyle="#f2a541";
+    ctx.save(); ctx.translate(hx,my);
+    ctx.beginPath(); ctx.moveTo(-10,0); ctx.lineTo(10,0); ctx.lineTo(0,10+mouthOpen*14); ctx.closePath(); ctx.fill();
+    ctx.restore();
+  } else {
+    ctx.fillStyle="#7a3b2e";
+    ctx.beginPath();
+    ctx.ellipse(hx,my,10,3+mouthOpen*11,0,0,Math.PI*2);
+    ctx.fill();
+    if(def.snout==="round" || def.snout==="small"){
+      ctx.fillStyle="rgba(0,0,0,0.15)";
+      ctx.beginPath(); ctx.ellipse(hx,my-8,7,5,0,0,Math.PI*2); ctx.fill();
+    }
+  }
+
+  ctx.restore();
+}
+
+function drawIntroPlaceholder(t){
+  ctx.fillStyle = skyGrad("#fddb92","#d1fdff");
+  ctx.fillRect(0,0,W,H);
+  ctx.fillStyle="#6cc069"; ctx.fillRect(0,GROUND_Y,W,H-GROUND_Y);
+  ctx.fillStyle="rgba(45,42,61,0.55)";
+  ctx.font="bold 22px sans-serif";
+  ctx.textAlign="center";
+  ctx.fillText("Hikayeni yaz ve senaryonu oluştur ✨", W/2, H*0.42);
+  ctx.font="16px sans-serif";
+  ctx.fillText("Karakterlerin burada canlanacak!", W/2, H*0.48);
+}
+
+/* ============================= OYNATMA MOTORU ============================= */
+
+let scenes = [];
+let activeScene = null;
+let playing = false;
+let startTime = performance.now();
+
+function setActiveScene(scene){
+  const n = scene.characters ? scene.characters.length : 0;
+  const chars = currentParsed.characters;
+  const cnt = chars.length;
+  const scaleBy = cnt>=3 ? 0.82 : 1;
+  const charStates = chars.map((ch,i)=>({
+    def: ch.def, color: ch.color, label: ch.label,
+    x: W*((i+1)/(cnt+1)), y: GROUND_Y+10,
+    scale: scaleBy, phase: i*1.7+Math.random()*0.5,
+    speaking:false
+  }));
+  activeScene = {
+    bg: scene.bg,
+    decor: makeBgLayout(scene.bg),
+    charStates
+  };
+}
+
+function draw(now){
+  const t = (now-startTime)/1000;
+  ctx.clearRect(0,0,W,H);
+  if(activeScene){
+    drawBackground(activeScene.bg, t, activeScene.decor);
+    activeScene.charStates.forEach(cs=>drawCharacter(cs, cs.x, cs.y, cs.scale, t));
+  } else {
+    drawIntroPlaceholder(t);
+  }
+  requestAnimationFrame(draw);
+}
+requestAnimationFrame(draw);
+
+/* ---- Seslendirme ---- */
+
+let trVoices = [];
+function loadVoices(){
+  if(!('speechSynthesis' in window)) return;
+  trVoices = window.speechSynthesis.getVoices().filter(v=>v.lang && v.lang.toLowerCase().startsWith('tr'));
+}
+if('speechSynthesis' in window){
+  loadVoices();
+  window.speechSynthesis.onvoiceschanged = loadVoices;
+}
+
+const VOICE_PROFILES = [
+  {pitch:1.15, rate:1.0},
+  {pitch:0.8,  rate:0.95},
+  {pitch:1.35, rate:1.08},
+  {pitch:0.65, rate:0.9}
+];
+function profileFor(i){
+  const pr = VOICE_PROFILES[i%VOICE_PROFILES.length];
+  const voice = trVoices.length ? trVoices[i%trVoices.length] : undefined;
+  return {pitch:pr.pitch, rate:pr.rate, voice};
+}
+
+function speakText(text, profile){
+  return new Promise(resolve=>{
+    if(!('speechSynthesis' in window)){
+      const dur = Math.min(4500, Math.max(900, text.length*65));
+      setTimeout(resolve, dur);
+      return;
+    }
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = 'tr-TR';
+    if(profile.voice) u.voice = profile.voice;
+    u.pitch = profile.pitch;
+    u.rate = profile.rate;
+    let done=false;
+    const finish = ()=>{ if(!done){ done=true; clearTimeout(safety); resolve(); } };
+    const safety = setTimeout(finish, Math.min(7000, Math.max(1400, text.length*75))+1500);
+    u.onend = finish;
+    u.onerror = finish;
+    try{ window.speechSynthesis.speak(u); }catch(e){ finish(); }
+  });
+}
+
+/* ---- Oynatma döngüsü ---- */
+
+const statusEl = document.getElementById('status');
+const subtitleEl = document.getElementById('subtitle');
+const genBtn = document.getElementById('genBtn');
+const playBtn = document.getElementById('playBtn');
+const stopBtn = document.getElementById('stopBtn');
+const recBtn = document.getElementById('recBtn');
+const promptInput = document.getElementById('promptInput');
+const charsEl = document.getElementById('chars');
+const scriptBox = document.getElementById('scriptBox');
+const scriptView = document.getElementById('scriptView');
+
+let currentParsed = null;
+
+function updateButtons(){
+  const hasScript = scenes.length>0;
+  genBtn.disabled = playing;
+  playBtn.disabled = !hasScript || playing;
+  stopBtn.disabled = !playing;
+  recBtn.disabled = !hasScript || playing;
+}
+
+async function runPlayback(){
+  playing = true;
+  updateButtons();
+  for(let si=0; si<scenes.length; si++){
+    if(!playing) break;
+    setActiveScene(scenes[si]);
+    statusEl.textContent = `Oynatılıyor: Sahne ${si+1}/${scenes.length} — ${scenes[si].title} (${BG_LABELS[scenes[si].bg]})`;
+    await sleep(500);
+    for(const line of scenes[si].dialogue){
+      if(!playing) break;
+      const idx = line.char % activeScene.charStates.length;
+      const speaker = activeScene.charStates[idx];
+      subtitleEl.textContent = `${speaker.label}: ${line.text}`;
+      speaker.speaking = true;
+      await speakText(line.text, profileFor(idx));
+      speaker.speaking = false;
+      await sleep(200);
+    }
+    await sleep(650);
+  }
+  if(playing){
+    statusEl.textContent = "Film bitti! 🎉 Tekrar oynatabilir veya yeni bir senaryo oluşturabilirsin.";
+    subtitleEl.textContent = "";
+  }
+  playing = false;
+  updateButtons();
+}
+
+genBtn.addEventListener('click', ()=>{
+  const text = promptInput.value.trim();
+  if(!text){
+    statusEl.textContent = "Lütfen önce bir hikaye yaz.";
+    return;
+  }
+  window.speechSynthesis && window.speechSynthesis.cancel();
+  currentParsed = parsePrompt(text);
+  scenes = buildScenes(currentParsed);
+  setActiveScene(scenes[0]);
+  statusEl.textContent = `Senaryo hazır! ${scenes.length} sahne oluşturuldu. "Oynat" ile başlat.`;
+  subtitleEl.textContent = "";
+
+  charsEl.innerHTML = "";
+  currentParsed.characters.forEach(ch=>{
+    const chip = document.createElement('div');
+    chip.className = 'chip';
+    chip.style.borderLeftColor = ch.color;
+    chip.textContent = `${ch.traitLabel} ${ch.label}`;
+    charsEl.appendChild(chip);
+  });
+
+  scriptView.innerHTML = "";
+  scenes.forEach((sc,i)=>{
+    const block = document.createElement('div');
+    block.className = 'scene-block';
+    const h = document.createElement('h3');
+    h.textContent = `Sahne ${i+1}: ${sc.title} — ${BG_LABELS[sc.bg]}`;
+    block.appendChild(h);
+    sc.dialogue.forEach(line=>{
+      const p = document.createElement('p');
+      const speakerLabel = currentParsed.characters[line.char % currentParsed.characters.length].label;
+      p.textContent = `${speakerLabel}: ${line.text}`;
+      block.appendChild(p);
+    });
+    scriptView.appendChild(block);
+  });
+  scriptBox.style.display = 'block';
+
+  updateButtons();
+});
+
+playBtn.addEventListener('click', ()=>{
+  if(!scenes.length || playing) return;
+  runPlayback();
+});
+
+stopBtn.addEventListener('click', ()=>{
+  playing = false;
+  window.speechSynthesis && window.speechSynthesis.cancel();
+  statusEl.textContent = "Durduruldu.";
+  subtitleEl.textContent = "";
+  updateButtons();
+});
+
+recBtn.addEventListener('click', async ()=>{
+  if(!scenes.length || playing) return;
+  if(typeof MediaRecorder === 'undefined' || !canvas.captureStream){
+    statusEl.textContent = "Tarayıcınız video kaydını desteklemiyor.";
+    return;
+  }
+  recBtn.disabled = true;
+  statusEl.textContent = "Kayıt hazırlanıyor...";
+
+  let audioTrack = null;
+  try{
+    if(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia){
+      const disp = await navigator.mediaDevices.getDisplayMedia({video:true, audio:true});
+      disp.getVideoTracks().forEach(tr=>tr.stop());
+      const at = disp.getAudioTracks()[0];
+      if(at) audioTrack = at;
+    }
+  }catch(e){
+    audioTrack = null;
+  }
+
+  const canvasStream = canvas.captureStream(30);
+  const tracks = [...canvasStream.getVideoTracks()];
+  if(audioTrack) tracks.push(audioTrack);
+  const combined = new MediaStream(tracks);
+
+  let mimeType = 'video/webm';
+  if(MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus')) mimeType='video/webm;codecs=vp9,opus';
+  else if(MediaRecorder.isTypeSupported('video/webm;codecs=vp8,opus')) mimeType='video/webm;codecs=vp8,opus';
+  else if(MediaRecorder.isTypeSupported('video/webm;codecs=vp8')) mimeType='video/webm;codecs=vp8';
+
+  const chunks = [];
+  const rec = new MediaRecorder(combined, {mimeType});
+  rec.ondataavailable = e=>{ if(e.data && e.data.size>0) chunks.push(e.data); };
+
+  const stopped = new Promise(resolve=>{ rec.onstop = resolve; });
+
+  rec.start();
+  statusEl.textContent = audioTrack ? "Kaydediliyor (sesli)..." : "Kaydediliyor (sekme sesi paylaşılmadı, video sessiz olacak)...";
+
+  await runPlayback();
+  rec.stop();
+  await stopped;
+
+  if(audioTrack) audioTrack.stop();
+
+  const blob = new Blob(chunks, {type:'video/webm'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'cizgi-film.webm';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url), 4000);
+
+  statusEl.textContent = "Video indirildi! 🎉";
+  updateButtons();
+});
+
+updateButtons();
+
+})();
+</script>
+</body>
+</html>
