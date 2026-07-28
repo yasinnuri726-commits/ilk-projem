@@ -187,25 +187,29 @@
 
 const ANIMALS = {
   "kedi":   {label:"Kedi",   color:"#f4a261", ear:"pointy", tail:"long",   whiskers:true,  snout:"small"},
+  "köpek":  {label:"Köpek",  color:"#d19a5d", ear:"floppy", tail:"wag",    whiskers:false, snout:"medium"},
   "fare":   {label:"Fare",   color:"#cfcbc4", ear:"round-big", tail:"thin-long", whiskers:true, snout:"pointy"},
   "tilki":  {label:"Tilki",  color:"#e76f2e", ear:"pointy", tail:"fluffy", whiskers:true,  snout:"pointy", color2:"#fff6ea"},
+  "kuş":    {label:"Kuş",    color:"#4aa3df", ear:"none",   tail:"feather",whiskers:false, snout:"beak", wings:true},
+  "balık":  {label:"Balık",  color:"#4fb3d9", bodyType:"fish", color2:"#ffb703"},
+  "kaplumbağa": {label:"Kaplumbağa", color:"#7cae57", bodyType:"turtle", color2:"#3f6b2f"},
+  "aslan":  {label:"Aslan",  color:"#e3a83b", ear:"round",  tail:"tuft",   whiskers:true,  snout:"medium", mane:true, color2:"#b5701f"},
+  "fil":    {label:"Fil",    color:"#9fb4c7", ear:"round-huge", tail:"short", whiskers:false, snout:"round", trunk:true},
+  "maymun": {label:"Maymun", color:"#a9714a", ear:"round",  tail:"long",   whiskers:false, snout:"medium", color2:"#e8d3b0"},
+  "baykuş": {label:"Baykuş", color:"#7d6350", ear:"tuft",   tail:"short",  whiskers:false, snout:"beak", wings:true},
+  "kurbağa":{label:"Kurbağa",color:"#7cb342", ear:"none",   tail:"none",   whiskers:false, snout:"round", bulgeEyes:true},
   "ayı":    {label:"Ayı",    color:"#8d5a3b", ear:"round",  tail:"short",  whiskers:false, snout:"round"},
   "tavşan": {label:"Tavşan", color:"#f7f4ef", ear:"long",   tail:"poof",   whiskers:true,  snout:"small"},
   "kurt":   {label:"Kurt",   color:"#8a8a8a", ear:"pointy", tail:"fluffy", whiskers:false, snout:"pointy"},
-  "köpek":  {label:"Köpek",  color:"#d19a5d", ear:"floppy", tail:"wag",    whiskers:false, snout:"medium"},
-  "kuş":    {label:"Kuş",    color:"#4aa3df", ear:"none",   tail:"feather",whiskers:false, snout:"beak", wings:true},
-  "aslan":  {label:"Aslan",  color:"#e3a83b", ear:"round",  tail:"tuft",   whiskers:true,  snout:"medium", mane:true, color2:"#b5701f"},
   "kaplan": {label:"Kaplan", color:"#e8862c", ear:"round",  tail:"long",   whiskers:true,  snout:"medium", stripes:true, color2:"#3a2a1a"},
   "panda":  {label:"Panda",  color:"#ffffff", ear:"round-big", tail:"short", whiskers:false, snout:"round", patches:true, color2:"#222222"},
   "ejderha":{label:"Ejderha",color:"#5cb85c", ear:"horn",   tail:"long-spiky", whiskers:false, snout:"long", wings:true, color2:"#2f7a2f"},
-  "maymun": {label:"Maymun", color:"#a9714a", ear:"round",  tail:"long",   whiskers:false, snout:"medium", color2:"#e8d3b0"},
   "zürafa": {label:"Zürafa", color:"#e8c169", ear:"round-small", tail:"long", whiskers:false, snout:"medium", longNeck:true, patches:true, color2:"#c98a2b"},
-  "fil":    {label:"Fil",    color:"#9fb4c7", ear:"round-huge", tail:"short", whiskers:false, snout:"round", trunk:true},
-  "baykuş": {label:"Baykuş", color:"#7d6350", ear:"tuft",   tail:"short",  whiskers:false, snout:"beak", wings:true},
-  "kurbağa":{label:"Kurbağa",color:"#7cb342", ear:"none",   tail:"none",   whiskers:false, snout:"round", bulgeEyes:true},
   "sincap": {label:"Sincap", color:"#b5651d", ear:"round",  tail:"fluffy-big", whiskers:true, snout:"small"},
   "at":     {label:"At",     color:"#7a5230", ear:"pointy-small", tail:"long", whiskers:false, snout:"long", mane:true, color2:"#3a2a1a"},
-  "koyun":  {label:"Koyun",  color:"#f5f0e6", ear:"floppy", tail:"short",  whiskers:false, snout:"medium", wool:true}
+  "koyun":  {label:"Koyun",  color:"#f5f0e6", ear:"floppy", tail:"short",  whiskers:false, snout:"medium", wool:true},
+  "papağan":{label:"Papağan",color:"#5cc26b", ear:"none",   tail:"feather",whiskers:false, snout:"beak", wings:true, color2:"#e63946"},
+  "penguen":{label:"Penguen",color:"#2d2a3d", ear:"none",   tail:"short",  whiskers:false, snout:"beak", color2:"#ffffff", wings:true}
 };
 
 const ADJECTIVES = ["cesur","korkak","akıllı","tembel","meraklı","sevimli","güçlü","zayıf","hızlı","yavaş",
@@ -230,24 +234,73 @@ const GOAL_TEXTS = {
 function pick(arr){ return arr[Math.floor(Math.random()*arr.length)]; }
 function cap(s){ if(!s) return s; return s.charAt(0).toLocaleUpperCase('tr-TR')+s.slice(1); }
 function sleep(ms){ return new Promise(r=>setTimeout(r,ms)); }
-function wordMatchesKey(word,key){ return word===key || (key.length>=3 && word.startsWith(key)); }
+
+// Türkçe çekim ekleri (uzun->kısa sırayla denenir) ve ünsüz yumuşaması geri dönüşümü.
+// Böylece "ormanda", "fareyi", "köpeğin" gibi çekimli kelimeler de sözlükle eşleşir,
+// ama rastgele bir kelimenin sadece baş harfleri tutuyor diye yanlış eşleşmesi engellenir.
+const TR_SUFFIXES = [
+  "larından","lerinden","larına","lerine","larını","lerini","larında","lerinde",
+  "sinden","sından","sunden","sünden","sinde","sında","sunda","sünde",
+  "sine","sına","sune","süne","sini","sını","sunu","sünü",
+  "ından","inden","undan","ünden","ndan","nden",
+  "nın","nin","nun","nün","dır","dir","dur","dür",
+  "ları","leri","lar","ler",
+  "dan","den","tan","ten","da","de","ta","te",
+  "ya","ye","yı","yi","yu","yü",
+  "ın","in","un","ün","ı","i","u","ü","a","e","la","le","yla","yle"
+];
+const SOFTEN_REVERT = {"b":"p","c":"ç","d":"t","ğ":"k"};
+
+function stemCandidates(word){
+  const cands = new Set([word]);
+  for(const suf of TR_SUFFIXES){
+    if(word.length > suf.length+2 && word.endsWith(suf)){
+      const stem = word.slice(0, word.length-suf.length);
+      cands.add(stem);
+      const last = stem[stem.length-1];
+      if(SOFTEN_REVERT[last]) cands.add(stem.slice(0,-1)+SOFTEN_REVERT[last]);
+    }
+  }
+  return [...cands];
+}
+
+function matchInDict(word, dict){
+  for(const cand of stemCandidates(word)){
+    if(Object.prototype.hasOwnProperty.call(dict,cand)) return cand;
+  }
+  return null;
+}
+function matchInList(word, list){
+  for(const cand of stemCandidates(word)){
+    if(list.includes(cand)) return cand;
+  }
+  return null;
+}
+
+function randomDistinctAnimals(n, exclude){
+  const pool = Object.keys(ANIMALS).filter(a=>!exclude || !exclude.includes(a));
+  const chosen = [];
+  const copy = [...pool];
+  while(chosen.length<n && copy.length){
+    const idx = Math.floor(Math.random()*copy.length);
+    chosen.push(copy.splice(idx,1)[0]);
+  }
+  return chosen;
+}
 
 /* ============================= PROMPT ANALİZİ ============================= */
 
 function parsePrompt(text){
   const words = text.split(/[^0-9a-zA-ZçÇğĞıİöÖşŞüÜ]+/).filter(Boolean).map(w=>w.toLocaleLowerCase('tr-TR'));
-  const animalKeys = Object.keys(ANIMALS);
-  const settingKeys = Object.keys(SETTINGS_MAP);
-  const goalKeys = Object.keys(GOAL_TEXTS);
 
   let found = [];
   words.forEach((w,i)=>{
     if(found.length>=4) return;
-    const key = animalKeys.find(k=>wordMatchesKey(w,k));
+    const key = matchInDict(w, ANIMALS);
     if(key && !found.some(f=>f.animal===key)){
       let trait = null;
       for(let j=Math.max(0,i-4); j<i; j++){
-        const aKey = ADJECTIVES.find(k=>wordMatchesKey(words[j],k));
+        const aKey = matchInList(words[j], ADJECTIVES);
         if(aKey) trait = aKey;
       }
       found.push({animal:key, trait});
@@ -255,22 +308,23 @@ function parsePrompt(text){
   });
 
   if(found.length===0){
-    found = [{animal:"kedi",trait:"cesur"},{animal:"fare",trait:"korkak"}];
+    const [a1,a2] = randomDistinctAnimals(2);
+    found = [{animal:a1,trait:pick(ADJECTIVES)}, {animal:a2,trait:pick(ADJECTIVES)}];
   } else if(found.length===1){
-    const altKey = found[0].animal==="fare" ? "kedi" : "fare";
-    found.push({animal:altKey, trait:"meraklı"});
+    const [altKey] = randomDistinctAnimals(1, [found[0].animal]);
+    found.push({animal:altKey, trait:pick(ADJECTIVES)});
   }
 
   let setting = null;
   for(const w of words){
-    const key = settingKeys.find(k=>wordMatchesKey(w,k));
+    const key = matchInDict(w, SETTINGS_MAP);
     if(key){ setting = SETTINGS_MAP[key]; break; }
   }
-  if(!setting) setting = "orman";
+  if(!setting) setting = pick(ALL_BGS);
 
   let goalWord = null;
   for(const w of words){
-    const key = goalKeys.find(k=>wordMatchesKey(w,k));
+    const key = matchInDict(w, GOAL_TEXTS);
     if(key){ goalWord = key; break; }
   }
 
@@ -302,54 +356,93 @@ function buildScenes(parsed){
   const n = chars.length;
   const c = i => chars[i % n];
   const goalText = parsed.goalWord ? (GOAL_TEXTS[parsed.goalWord] || (parsed.goalWord+"yi bulmayı")) : "büyük bir macerayı";
-  const bgSeq = buildBgSequence(parsed.setting, 5);
+  const bgSeq = buildBgSequence(parsed.setting, 9);
 
   const korkakIdx = chars.findIndex(ch=>ch.trait==="korkak" || ch.trait==="çekingen" || ch.trait==="üzgün");
   const cesurIdx = chars.findIndex((ch,i)=> (ch.trait==="cesur" || ch.trait==="güçlü") && i!==korkakIdx);
+  const kIdx = korkakIdx>=0 ? korkakIdx : 0;
+  const cIdx = (cesurIdx>=0 && cesurIdx!==kIdx) ? cesurIdx : (n>1 ? (kIdx===0?1:0) : 0);
 
   const scenes = [];
+  const extra = (scene, idx, texts) => { if(n>idx) scene.dialogue.push({char:idx, text:pick(texts)}); };
 
-  scenes.push({
-    bg:bgSeq[0], title:"Tanışma",
-    dialogue:[
-      {char:0, text:`Merhaba! Ben ${c(0).traitLabel} bir ${c(0).label}. Bugün ${goalText} bulmak için yola çıkıyorum!`},
-      {char:n>1?1:0, text:n>1?`Ben de geliyorum! Ben ${c(1).traitLabel} bir ${c(1).label}, birlikte daha güçlüyüz.`:`Hazırım, hemen maceraya başlayalım!`}
-    ]
-  });
+  // 1. Tanışma
+  scenes.push({ bg:bgSeq[0], title:"Tanışma", dialogue:[
+    {char:0, text:`Merhaba! Ben ${c(0).traitLabel} bir ${c(0).label}. Bugün ${goalText} bulmak için yola çıkıyorum!`},
+    {char:n>1?1:0, text:n>1?`Ben de geliyorum! Ben ${c(1).traitLabel} bir ${c(1).label}, birlikte daha güçlüyüz.`:`Hazırım, hemen maceraya başlayalım!`},
+    {char:0, text:pick([`Sence bu iş kaç dakikamızı alır?`,`Hazır mısın? Ben çoktan hazırım!`,`Bu sabah kahvaltıda çok heyecanlıydım, elim ayağıma dolaştı!`])},
+    {char:n>1?1:0, text:pick([`Sorma, ben daha dün gece uyuyamadım heyecandan!`,`Hazırım, ama önce güzelce gerinelim.`,`Kahvaltı derken... karnım şimdi guruldadı, hihi!`])}
+  ]});
+  extra(scenes[0], 2, [`Beni de unutmayın, ben de geliyorum!`,`Harika bir ekip olduk bence.`]);
 
-  scenes.push({
-    bg:bgSeq[1], title:"Yolculuk Başlıyor",
-    dialogue:[
-      {char:0, text:pick(["Vay canına, burası ne kadar büyükmüş!","Bakın, yol buradan devam ediyor.","Hislerim bana doğru yolda olduğumuzu söylüyor."])},
-      {char:n>1?1:0, text:pick(["Dikkatli olalım, her adımı iyi düşünelim.","Ben az önce ilginç bir iz gördüm!","Hadi durmadan ilerleyelim."])}
-    ]
-  });
-  if(n>=3) scenes[1].dialogue.push({char:2, text:pick(["Ben yolu kontrol ediyorum, endişelenmeyin!","Kokusunu alıyorum, çok yakınız sanırım."])});
+  // 2. Yola Çıkış
+  scenes.push({ bg:bgSeq[1], title:"Yola Çıkış", dialogue:[
+    {char:0, text:pick([`Vay canına, burası ne kadar büyükmüş!`,`Bakın, yol buradan devam ediyor.`,`Hislerim bana doğru yolda olduğumuzu söylüyor.`])},
+    {char:n>1?1:0, text:pick([`Dikkatli olalım, her adımı iyi düşünelim.`,`Ben az önce ilginç bir iz gördüm!`,`Hadi durmadan ilerleyelim.`])},
+    {char:0, text:pick([`Biliyor musun, yürürken şarkı söylemek yolu kısaltırmış.`,`Şuna bak, bulutlar bile bize gülümsüyor gibi.`,`Keşke şimdi elimde bir harita olsaydı.`])},
+    {char:n>1?1:0, text:pick([`O zaman hadi bir şarkı tuttur, ben de eşlik ederim!`,`Haha, bulutlar değil, sen açsın galiba!`,`Merak etme, burnumuz bize yeter!`])}
+  ]});
+  extra(scenes[1], 2, [`Ben yolu kontrol ediyorum, endişelenmeyin!`,`Kokusunu alıyorum, çok yakınız sanırım.`]);
 
-  scenes.push({
-    bg:bgSeq[2], title:"Beklenmedik Engel",
-    dialogue:[
-      {char:korkakIdx>=0?korkakIdx:0, text:korkakIdx>=0?"Aaa! Burası çok karanlık, biraz korkuyorum...":"Dikkat! Önümüzde bir engel var."},
-      {char:(cesurIdx>=0 && cesurIdx!==(korkakIdx>=0?korkakIdx:0))?cesurIdx:(n>1?1:0), text:pick(["Korkma, ben yanındayım, birlikte aşarız bunu!","Sakin ol, güzel bir plan yapalım.","Hep birlikte çok daha güçlüyüz!"])}
-    ]
-  });
+  // 3. Şaşırtıcı Bir Şey (sürpriz anı)
+  scenes.push({ bg:bgSeq[2], title:"Şaşırtıcı Bir Şey", dialogue:[
+    {char:0, text:pick([`Bir dakika... bu da ne?! Hiç böyle bir şey görmemiştim!`,`Vaaay! Şuna bakar mısın, gözlerime inanamıyorum!`])},
+    {char:n>1?1:0, text:pick([`Ne oldu, ne buldun? Beni de meraklandırdın!`,`Aman ne oldu birden, kalbim hızlandı!`])},
+    {char:0, text:pick([`Burada çok tuhaf ama bir o kadar da güzel izler var.`,`Sanki biri bizden önce buradan geçmiş, işaretler bırakmış.`])},
+    {char:n>1?1:0, text:pick([`Belki de bu bize yol gösteriyordur, hadi takip edelim!`,`Şaşırdım ama içimde iyi bir his var, devam edelim.`])}
+  ]});
 
-  scenes.push({
-    bg:bgSeq[3], title:"Birlikte Çözüyorlar",
-    dialogue:[
-      {char:0, text:pick(["Bakın, burada bir işaret var!","Sanırım doğru yoldayız.","Şuna bakın, çok ilginç bir şey buldum."])},
-      {char:n>1?1:0, text:pick(["Harika buluş! Hadi devam edelim.","Bir dakika daha ve oraya varmış olacağız.","Bu bizi hedefimize götürecek!"])}
-    ]
-  });
-  if(n>=4) scenes[3].dialogue.push({char:3, text:pick(["Ben de size eşlik ediyorum, hadi gidelim!","Bakın gökyüzü nasıl da güzel şimdi."])});
+  // 4. Küçük Bir Anlaşmazlık
+  scenes.push({ bg:bgSeq[3], title:"Küçük Bir Anlaşmazlık", dialogue:[
+    {char:0, text:pick([`Bence sağdan gitmeliyiz, orası daha kısa görünüyor.`,`Ben soldaki patikadan gitmemiz gerektiğini düşünüyorum.`])},
+    {char:n>1?1:0, text:pick([`Hayır hayır, bence soldan gitmeliyiz, daha güvenli!`,`Olmaz, sağdan gidersek kaybolabiliriz bence!`])},
+    {char:0, text:pick([`Ama ben haklı olduğumdan eminim, bana güvenmiyor musun?`,`Neden hep farklı düşünüyoruz ki, biraz da bana güven!`])},
+    {char:n>1?1:0, text:pick([`Güvenmiyor değilim ama bazen bence de haklı olabilirim!`,`Sen de biraz benim fikrimi dinlesen fena olmaz!`])}
+  ]});
 
-  scenes.push({
-    bg:bgSeq[4], title:"Mutlu Son",
-    dialogue:[
-      {char:0, text:`İşte burada! Sonunda ${goalText} bulduk!`},
-      {char:n>1?1:0, text:pick(["Seninle bu maceraya çıktığım için çok mutluyum.","Birlikte başaramayacağımız hiçbir şey yok!","En iyi arkadaşlar birlikte kazanır!"])}
-    ]
-  });
+  // 5. Barışma
+  scenes.push({ bg:bgSeq[4], title:"Barışma", dialogue:[
+    {char:n>1?1:0, text:pick([`Özür dilerim, biraz sert konuştum, haklı olabilirsin.`,`Aslında sana kızmadım, sadece endişelendim, kusura bakma.`])},
+    {char:0, text:pick([`Yok canım, ben de inatçılık ettim, asıl ben özür dilerim.`,`Önemli değil, ikimiz de aynı şeyi istiyoruz zaten.`])},
+    {char:n>1?1:0, text:pick([`O zaman ikisini de deneyelim, hangisi işe yararsa!`,`Seninle tartışmak bile eğlenceli aslında, hihi.`])},
+    {char:0, text:pick([`En iyi arkadaşlar böyle küçük tartışmalardan güçlenerek çıkar.`,`Hadi elini ver, birlikte devam edelim!`])}
+  ]});
+
+  // 6. Beklenmedik Engel
+  scenes.push({ bg:bgSeq[5], title:"Beklenmedik Engel", dialogue:[
+    {char:kIdx, text:pick([`Aaa! Burası çok karanlık, biraz korkuyorum...`,`Bir şey var burada, tüylerim diken diken oldu!`])},
+    {char:cIdx, text:pick([`Korkma, ben yanındayım, birlikte aşarız bunu!`,`Sakin ol, güzel bir plan yapalım.`])},
+    {char:kIdx, text:pick([`Peki... ama elimi bırakma olur mu?`,`Tamam, ama biraz da şaka yap, gerginliğim geçsin.`])},
+    {char:cIdx, text:pick([`Söz, elini hiç bırakmayacağım, hem şu haline bak ne kadar komiksin!`,`Bırakmam! Ve merak etme, birlikte çok daha güçlüyüz!`])}
+  ]});
+  extra(scenes[5], 2, [`Ben de sizinleyim, birlikte hallederiz!`,`Korkmayın, ben etraftan haber getiririm.`]);
+
+  // 7. Birlikte Çözüyorlar
+  scenes.push({ bg:bgSeq[6], title:"Birlikte Çözüyorlar", dialogue:[
+    {char:0, text:pick([`Bakın, burada bir işaret var!`,`Sanırım doğru yoldayız.`,`Şuna bakın, çok ilginç bir şey buldum.`])},
+    {char:n>1?1:0, text:pick([`Harika buluş! Hadi devam edelim.`,`Bir dakika daha ve oraya varmış olacağız.`,`Bu bizi hedefimize götürecek!`])},
+    {char:0, text:pick([`Sen olmasan bunu asla çözemezdim.`,`Bak, birlikte çalışınca her şey daha kolay oluyor.`])},
+    {char:n>1?1:0, text:pick([`Sen de olmasan ben buraya kadar hiç gelemezdim.`,`Hadi son bir gayret, çok yaklaştık!`])}
+  ]});
+  extra(scenes[6], 3, [`Ben de size eşlik ediyorum, hadi gidelim!`,`Bakın gökyüzü nasıl da güzel şimdi.`]);
+
+  // 8. Doruk Noktası
+  scenes.push({ bg:bgSeq[7], title:"Doruk Noktası", dialogue:[
+    {char:0, text:pick([`Neredeyse oradayız ama önümüzde son bir engel var!`,`Hedefimiz çok yakın, hissediyorum!`])},
+    {char:n>1?1:0, text:pick([`Kalbim küt küt atıyor ama pes etmeyeceğiz!`,`Biraz daha dayanalım, çok az kaldı!`])},
+    {char:0, text:pick([`Hazır mısın? Üç deyince birlikte atlıyoruz!`,`Son bir adım, hepimiz birlikte!`])},
+    {char:n>1?1:0, text:pick([`Hazırım! Bir, iki, üç... başardık!`,`Yaptık, gerçekten yaptık!`])}
+  ]});
+
+  // 9. Mutlu Son
+  scenes.push({ bg:bgSeq[8], title:"Mutlu Son", dialogue:[
+    {char:0, text:`İşte burada! Sonunda ${goalText} bulduk!`},
+    {char:n>1?1:0, text:pick([`Seninle bu maceraya çıktığım için çok mutluyum.`,`Birlikte başaramayacağımız hiçbir şey yok!`])},
+    {char:0, text:pick([`Hatırlıyor musun, en başta karnım guruldamıştı, hihi, şimdi kutlama zamanı!`,`Küçük tartışmamızı bile özleyeceğim galiba!`])},
+    {char:n>1?1:0, text:pick([`En iyi arkadaşlar birlikte kazanır!`,`Bu, hayatımın en güzel macerasıydı.`])}
+  ]});
+  extra(scenes[8], 2, [`Bu zaferde benim de payım var, hihi!`,`Hepimize bir alkış!`]);
+  extra(scenes[8], 3, [`Yaşasın, başardık!`]);
 
   return scenes;
 }
@@ -361,10 +454,86 @@ const ctx = canvas.getContext('2d');
 const W = canvas.width, H = canvas.height;
 const GROUND_Y = H*0.74;
 
-function skyGrad(topC, botC){
+function skyGrad(...colors){
   const g = ctx.createLinearGradient(0,0,0,GROUND_Y);
-  g.addColorStop(0, topC); g.addColorStop(1, botC);
+  colors.forEach((c,i)=>g.addColorStop(i/(colors.length-1), c));
   return g;
+}
+
+function drawSunRays(x,y,r,t,color){
+  ctx.save();
+  ctx.translate(x,y);
+  ctx.rotate(t*0.08);
+  ctx.globalAlpha = 0.25;
+  ctx.fillStyle = color;
+  const rays = 10;
+  for(let i=0;i<rays;i++){
+    const a = i*(Math.PI*2/rays);
+    ctx.save();
+    ctx.rotate(a);
+    ctx.beginPath();
+    ctx.moveTo(0,0);
+    ctx.lineTo(r*2.4, -r*0.35);
+    ctx.lineTo(r*2.8, 0);
+    ctx.lineTo(r*2.4, r*0.35);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+  ctx.restore();
+}
+
+function drawRock(x,y,scale,color){
+  ctx.save();
+  ctx.translate(x,y); ctx.scale(scale,scale);
+  ctx.fillStyle = color||"#9a958c";
+  ctx.beginPath();
+  ctx.moveTo(-24,10); ctx.lineTo(-18,-14); ctx.lineTo(2,-20); ctx.lineTo(22,-8); ctx.lineTo(20,10);
+  ctx.closePath(); ctx.fill();
+  ctx.fillStyle = "rgba(255,255,255,0.15)";
+  ctx.beginPath(); ctx.moveTo(-14,-8); ctx.lineTo(0,-16); ctx.lineTo(6,-6); ctx.closePath(); ctx.fill();
+  ctx.restore();
+}
+
+function drawCoral(x,y,scale,color){
+  ctx.save();
+  ctx.translate(x,y); ctx.scale(scale,scale);
+  ctx.strokeStyle = color; ctx.lineWidth=6; ctx.lineCap="round";
+  function branch(bx,by,ang,len,depth){
+    if(depth<=0) return;
+    const ex = bx+Math.cos(ang)*len, ey = by+Math.sin(ang)*len;
+    ctx.beginPath(); ctx.moveTo(bx,by); ctx.lineTo(ex,ey); ctx.stroke();
+    branch(ex,ey,ang-0.5,len*0.7,depth-1);
+    branch(ex,ey,ang+0.5,len*0.7,depth-1);
+  }
+  branch(0,0,-Math.PI/2,18,3);
+  ctx.restore();
+}
+
+function drawSeaweed(x,y,h,t,phase){
+  ctx.save();
+  ctx.translate(x,y);
+  ctx.strokeStyle = "#2f9e4f"; ctx.lineWidth=7; ctx.lineCap="round";
+  ctx.beginPath();
+  ctx.moveTo(0,0);
+  const segs=4;
+  for(let i=1;i<=segs;i++){
+    const yy = -(h/segs)*i;
+    const xx = Math.sin(t*1.5+phase+i)* (10+i*2);
+    ctx.lineTo(xx,yy);
+  }
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawBubble(x,y,r,op){
+  ctx.save();
+  ctx.globalAlpha=op;
+  ctx.strokeStyle="rgba(255,255,255,0.8)"; ctx.lineWidth=1.5;
+  ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.stroke();
+  ctx.fillStyle="rgba(255,255,255,0.15)";
+  ctx.fill();
+  ctx.restore();
 }
 
 function drawSun(x,y,r,color){
@@ -450,8 +619,10 @@ function makeBgLayout(key){
   const rnd = ()=>Math.random();
   const layout = {key};
   if(key==="orman"){
+    layout.treesBack = Array.from({length:7},()=>({x:rnd()*W, scale:0.35+rnd()*0.3}));
     layout.trees = Array.from({length:6},()=>({x:rnd()*W, scale:0.6+rnd()*0.6}));
     layout.bushes = Array.from({length:4},()=>({x:rnd()*W, scale:0.6+rnd()*0.5}));
+    layout.flowers = Array.from({length:8},()=>({x:rnd()*W, y:GROUND_Y+30+rnd()*(H-GROUND_Y-50), scale:0.6+rnd()*0.5, color:pick(["#ff6b6b","#ffd93d","#a78bfa","#ff9de2"])}));
     layout.clouds = Array.from({length:3},()=>({x:rnd()*W, y:40+rnd()*60, scale:0.6+rnd()*0.6}));
   } else if(key==="magara"){
     layout.stalactites = Array.from({length:7},()=>({x:rnd()*W, len:30+rnd()*70, w:16+rnd()*20}));
@@ -473,18 +644,23 @@ function makeBgLayout(key){
       {x:W*0.85, w:200, h:170+rnd()*40, color:"#9096a8"}
     ];
     layout.clouds = Array.from({length:2},()=>({x:rnd()*W, y:60+rnd()*40, scale:0.6+rnd()*0.5}));
+    layout.rocks = Array.from({length:4},()=>({x:rnd()*W, scale:0.5+rnd()*0.5}));
   } else if(key==="gol"){
     layout.lilies = Array.from({length:6},()=>({x:rnd()*W, y:GROUND_Y+20+rnd()*(H-GROUND_Y-40), scale:0.6+rnd()*0.6}));
     layout.trees = Array.from({length:4},()=>({x:rnd()*W, y:GROUND_Y-10, scale:0.35+rnd()*0.3}));
     layout.clouds = Array.from({length:2},()=>({x:rnd()*W, y:40+rnd()*40, scale:0.5+rnd()*0.5}));
   } else if(key==="deniz"){
     layout.birds = Array.from({length:3},()=>({x:rnd()*W, y:60+rnd()*80}));
+    layout.corals = Array.from({length:5},()=>({x:rnd()*W, y:H-8-rnd()*10, scale:0.7+rnd()*0.8, color:pick(["#ff6b6b","#ff9de2","#ffb347","#ff8fa3"])}));
+    layout.seaweed = Array.from({length:6},()=>({x:rnd()*W, h:30+rnd()*40, phase:rnd()*10}));
+    layout.bubbles = Array.from({length:14},()=>({x:rnd()*W, y0:GROUND_Y+20+rnd()*(H-GROUND_Y-20), r:2+rnd()*4, speed:8+rnd()*10, phase:rnd()*10}));
   } else if(key==="uzay"){
     layout.stars = Array.from({length:50},()=>({x:rnd()*W, y:rnd()*GROUND_Y, r:0.8+rnd()*1.8, phase:rnd()*10}));
     layout.planets = [
       {x:W*0.2, y:H*0.18, r:26, color:"#ff9de2", ring:false},
       {x:W*0.8, y:H*0.28, r:18, color:"#7ee8fa", ring:true}
     ];
+    layout.cometPhase = rnd()*10;
   } else if(key==="sehir"){
     let x=0; layout.buildings=[];
     while(x<W){
@@ -502,11 +678,15 @@ function makeBgLayout(key){
 function drawBackground(key, t, decor){
   ctx.save();
   if(key==="orman"){
-    ctx.fillStyle = skyGrad("#bfe9ff","#eaffea"); ctx.fillRect(0,0,W,GROUND_Y);
+    ctx.fillStyle = skyGrad("#bfe9ff","#dff5f0","#eaffea"); ctx.fillRect(0,0,W,GROUND_Y);
+    drawSunRays(W*0.82,80,36,t,"#ffe066");
     drawSun(W*0.82,80,36,"#ffe066");
     decor.clouds.forEach(c=>drawCloud(c.x+Math.sin(t*0.1+c.x)*10, c.y, c.scale));
-    ctx.fillStyle = "#6cc069"; ctx.fillRect(0,GROUND_Y,W,H-GROUND_Y);
+    ctx.fillStyle = "#7ad07a"; ctx.fillRect(0,GROUND_Y,W,H-GROUND_Y*0.4);
+    decor.treesBack.forEach(tr=>{ ctx.globalAlpha=0.55; drawTree(tr.x,GROUND_Y+10,tr.scale); ctx.globalAlpha=1; });
+    ctx.fillStyle = "#6cc069"; ctx.fillRect(0,GROUND_Y+16,W,H-GROUND_Y-16);
     decor.bushes.forEach(b=>drawBush(b.x,GROUND_Y+18,b.scale));
+    decor.flowers.forEach(f=>drawFlower(f.x,f.y,f.scale,f.color));
     decor.trees.forEach(tr=>drawTree(tr.x,GROUND_Y+20,tr.scale));
   } else if(key==="magara"){
     ctx.fillStyle = skyGrad("#241b3a","#4a3a63"); ctx.fillRect(0,0,W,GROUND_Y);
@@ -557,10 +737,11 @@ function drawBackground(key, t, decor){
     decor.bushes.forEach(b=>drawBush(b.x,GROUND_Y+14,b.scale,"#7bc94c"));
     decor.flowers.forEach(f=>drawFlower(f.x,f.y,f.scale,f.color));
   } else if(key==="dag"){
-    ctx.fillStyle = skyGrad("#a9c8e8","#e6eef5"); ctx.fillRect(0,0,W,GROUND_Y);
-    decor.clouds.forEach(c=>drawCloud(c.x,c.y,c.scale));
+    ctx.fillStyle = skyGrad("#a9c8e8","#cfe0ee","#e6eef5"); ctx.fillRect(0,0,W,GROUND_Y);
+    decor.clouds.forEach(c=>drawCloud(c.x+Math.sin(t*0.08+c.x)*14,c.y,c.scale));
     decor.peaks.forEach(p=>drawMountainShape(p.x,GROUND_Y,p.w,p.h,p.color,true));
     ctx.fillStyle="#b9c4a9"; ctx.fillRect(0,GROUND_Y,W,H-GROUND_Y);
+    decor.rocks.forEach(r=>drawRock(r.x,GROUND_Y+22,r.scale));
   } else if(key==="gol"){
     ctx.fillStyle = skyGrad("#bfe9ff","#eaffea"); ctx.fillRect(0,0,W,GROUND_Y);
     decor.clouds.forEach(c=>drawCloud(c.x,c.y,c.scale));
@@ -575,27 +756,36 @@ function drawBackground(key, t, decor){
       ctx.beginPath(); ctx.arc(l.x,l.y,3*l.scale,0,Math.PI*2); ctx.fill();
     });
   } else if(key==="deniz"){
-    ctx.fillStyle = skyGrad("#ffd6a5","#8ecae6"); ctx.fillRect(0,0,W,GROUND_Y);
+    ctx.fillStyle = skyGrad("#ffd6a5","#ffb8a0","#8ecae6"); ctx.fillRect(0,0,W,GROUND_Y);
     drawSun(W*0.5,H*0.32,40,"#ffb347");
     decor.birds.forEach(b=>{
       ctx.strokeStyle="#333"; ctx.lineWidth=2;
       const flap = Math.sin(t*4+b.x)*6;
+      const bx = (b.x + t*18) % (W+40) - 20;
       ctx.beginPath();
-      ctx.moveTo(b.x-10,b.y); ctx.quadraticCurveTo(b.x-4,b.y-6-flap,b.x,b.y);
-      ctx.quadraticCurveTo(b.x+4,b.y-6-flap,b.x+10,b.y);
+      ctx.moveTo(bx-10,b.y); ctx.quadraticCurveTo(bx-4,b.y-6-flap,bx,b.y);
+      ctx.quadraticCurveTo(bx+4,b.y-6-flap,bx+10,b.y);
       ctx.stroke();
     });
-    ctx.fillStyle="#3a8fb7"; ctx.fillRect(0,GROUND_Y,W,H-GROUND_Y);
+    const waterTop = GROUND_Y;
+    ctx.fillStyle="#3a8fb7"; ctx.fillRect(0,waterTop,W,H-waterTop);
     ctx.strokeStyle="rgba(255,255,255,0.45)"; ctx.lineWidth=3;
     for(let i=0;i<5;i++){
       ctx.beginPath();
-      const yy = GROUND_Y+12+i*18;
+      const yy = waterTop+12+i*18;
       for(let x=0;x<=W;x+=20){
         const yy2 = yy+Math.sin(t*2.4+x*0.06+i)*5;
         if(x===0) ctx.moveTo(x,yy2); else ctx.lineTo(x,yy2);
       }
       ctx.stroke();
     }
+    decor.seaweed.forEach(s=>drawSeaweed(s.x, H, s.h, t, s.phase));
+    decor.corals.forEach(c=>drawCoral(c.x,c.y,c.scale,c.color));
+    decor.bubbles.forEach(b=>{
+      const rise = (t*b.speed+b.phase*20) % 90;
+      const op = 0.7*(1-rise/90);
+      drawBubble(b.x, b.y0-rise, b.r, Math.max(0,op));
+    });
   } else if(key==="uzay"){
     ctx.fillStyle = "#0a0a1a"; ctx.fillRect(0,0,W,H);
     decor.stars.forEach(s=>{
@@ -611,6 +801,22 @@ function drawBackground(key, t, decor){
         ctx.globalAlpha=1;
       }
     });
+    // kuyruklu yıldız (kayan yıldız)
+    const cometCycle = 6;
+    const cy = (t+decor.cometPhase) % cometCycle;
+    if(cy < 1.4){
+      const cx0 = -60 + (W+120)*(cy/1.4);
+      const cy0 = 60 + (H*0.35)*(cy/1.4);
+      ctx.save();
+      const grad = ctx.createLinearGradient(cx0,cy0, cx0-70,cy0-40);
+      grad.addColorStop(0,"rgba(255,255,255,0.95)");
+      grad.addColorStop(1,"rgba(255,255,255,0)");
+      ctx.strokeStyle = grad; ctx.lineWidth=3; ctx.lineCap="round";
+      ctx.beginPath(); ctx.moveTo(cx0,cy0); ctx.lineTo(cx0-70,cy0-40); ctx.stroke();
+      ctx.fillStyle="#fff";
+      ctx.beginPath(); ctx.arc(cx0,cy0,4,0,Math.PI*2); ctx.fill();
+      ctx.restore();
+    }
     ctx.fillStyle="#1c1c3a"; ctx.fillRect(0,GROUND_Y,W,H-GROUND_Y);
   } else if(key==="sehir"){
     ctx.fillStyle = skyGrad("#5b6fa8","#e8c9a0"); ctx.fillRect(0,0,W,GROUND_Y);
@@ -715,8 +921,133 @@ function drawTail(shape,bodyR,color,t,phase){
   ctx.restore();
 }
 
+function drawFishCharacter(cs, x, y, scale, t){
+  const def = cs.def;
+  const bounceIdle = Math.sin(t*2.4+cs.phase)*10;
+  const bounceTalk = cs.speaking ? Math.sin(t*9+cs.phase)*3 : 0;
+  const sway = Math.sin(t*1.6+cs.phase)*0.12;
+  const col = cs.color, col2 = def.color2 || "#ffb703";
+
+  ctx.save();
+  ctx.globalAlpha=0.2; ctx.fillStyle="#000";
+  ctx.beginPath(); ctx.ellipse(x,y+34*scale,40*scale,10*scale,0,0,Math.PI*2); ctx.fill();
+  ctx.restore();
+
+  ctx.save();
+  ctx.translate(x, y+bounceIdle+bounceTalk);
+  ctx.rotate(sway);
+  ctx.scale(scale,scale);
+
+  const tailWag = Math.sin(t*6+cs.phase)*0.5;
+  // kuyruk yüzgeci
+  ctx.save();
+  ctx.translate(-44,0); ctx.rotate(tailWag*0.4);
+  ctx.fillStyle = col2;
+  ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(-26,-20); ctx.lineTo(-18,0); ctx.lineTo(-26,20); ctx.closePath(); ctx.fill();
+  ctx.restore();
+
+  // gövde
+  ctx.fillStyle = col;
+  ctx.beginPath(); ctx.ellipse(0,0,44,32,0,0,Math.PI*2); ctx.fill();
+
+  // sırt ve alt yüzgeç
+  ctx.fillStyle = col2;
+  ctx.beginPath(); ctx.moveTo(-6,-30); ctx.lineTo(14,-46); ctx.lineTo(20,-26); ctx.closePath(); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(-6,30); ctx.lineTo(10,44); ctx.lineTo(18,26); ctx.closePath(); ctx.fill();
+  // yan yüzgeç (çırpınan)
+  const finFlap = Math.sin(t*8+cs.phase)*8;
+  ctx.beginPath(); ctx.ellipse(6,16+finFlap,16,8,0.5,0,Math.PI*2); ctx.fill();
+
+  // leke desenleri
+  ctx.fillStyle="rgba(255,255,255,0.35)";
+  ctx.beginPath(); ctx.ellipse(-10,-8,10,6,0.3,0,Math.PI*2); ctx.fill();
+
+  // solungaç
+  ctx.strokeStyle="rgba(0,0,0,0.25)"; ctx.lineWidth=2;
+  ctx.beginPath(); ctx.arc(26,2,10,-0.8,0.8); ctx.stroke();
+
+  // yanak
+  ctx.fillStyle="rgba(255,140,140,0.5)";
+  ctx.beginPath(); ctx.ellipse(30,10,6,4,0,0,Math.PI*2); ctx.fill();
+
+  // göz
+  const blinkCycle=4.0;
+  const localT=(t+cs.phase*2.7)%blinkCycle;
+  const blink = localT>blinkCycle-0.15;
+  drawEyes(30,-6, blink);
+
+  // ağız
+  const mouthOpen = cs.speaking ? (0.35+0.65*Math.abs(Math.sin(t*15+cs.phase))) : 0.08;
+  ctx.fillStyle="#7a3b2e";
+  ctx.beginPath(); ctx.ellipse(42,8,5+mouthOpen*6,3+mouthOpen*7,0,0,Math.PI*2); ctx.fill();
+
+  ctx.restore();
+}
+
+function drawTurtleCharacter(cs, x, y, scale, t){
+  const def = cs.def;
+  const bounceIdle = Math.sin(t*1.6+cs.phase)*4;
+  const bounceTalk = cs.speaking ? Math.sin(t*9+cs.phase)*2 : 0;
+  const sway = Math.sin(t*1.1+cs.phase)*0.03;
+  const col = cs.color, col2 = def.color2 || "#3f6b2f";
+
+  ctx.save();
+  ctx.globalAlpha=0.22; ctx.fillStyle="#000";
+  ctx.beginPath(); ctx.ellipse(x,y+40*scale,42*scale,11*scale,0,0,Math.PI*2); ctx.fill();
+  ctx.restore();
+
+  ctx.save();
+  ctx.translate(x, y+bounceIdle+bounceTalk);
+  ctx.rotate(sway);
+  ctx.scale(scale,scale);
+
+  // bacaklar
+  ctx.fillStyle = col;
+  [[-30,20],[30,20],[-30,-4],[30,-4]].forEach(([lx,ly])=>{
+    ctx.beginPath(); ctx.ellipse(lx,ly,10,8,0,0,Math.PI*2); ctx.fill();
+  });
+
+  // kuyruk
+  ctx.beginPath(); ctx.moveTo(-40,4); ctx.lineTo(-52,0); ctx.lineTo(-40,-8); ctx.closePath(); ctx.fill();
+
+  // kafa
+  const headBob = Math.sin(t*1.8+cs.phase)*3;
+  const hx = 40, hy = -2+headBob;
+  ctx.fillStyle = col;
+  ctx.beginPath(); ctx.arc(hx,hy,20,0,Math.PI*2); ctx.fill();
+
+  // kabuk (shell)
+  ctx.fillStyle = col2;
+  ctx.beginPath(); ctx.ellipse(-4,-6,46,34,0,0,Math.PI*2); ctx.fill();
+  ctx.strokeStyle="rgba(0,0,0,0.2)"; ctx.lineWidth=2.5;
+  for(let i=0;i<3;i++){
+    ctx.beginPath(); ctx.ellipse(-4,-6,34-i*10,24-i*7,0,0,Math.PI*2); ctx.stroke();
+  }
+  ctx.beginPath(); ctx.moveTo(-4,-40); ctx.lineTo(-4,28); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(-38,-6); ctx.lineTo(30,-6); ctx.stroke();
+
+  // yanak
+  ctx.fillStyle="rgba(255,140,140,0.5)";
+  ctx.beginPath(); ctx.ellipse(hx+8,hy+10,5,4,0,0,Math.PI*2); ctx.fill();
+
+  // göz
+  const blinkCycle=4.0;
+  const localT=(t+cs.phase*2.7)%blinkCycle;
+  const blink = localT>blinkCycle-0.15;
+  drawEyes(hx+6,hy-4, blink);
+
+  // ağız
+  const mouthOpen = cs.speaking ? (0.35+0.65*Math.abs(Math.sin(t*15+cs.phase))) : 0.08;
+  ctx.fillStyle="#7a3b2e";
+  ctx.beginPath(); ctx.ellipse(hx+14,hy+8,4+mouthOpen*4,2+mouthOpen*5,0,0,Math.PI*2); ctx.fill();
+
+  ctx.restore();
+}
+
 function drawCharacter(cs, x, y, scale, t){
   const def = cs.def;
+  if(def.bodyType==="fish"){ drawFishCharacter(cs,x,y,scale,t); return; }
+  if(def.bodyType==="turtle"){ drawTurtleCharacter(cs,x,y,scale,t); return; }
   const bounceIdle = Math.sin(t*2+cs.phase)*6;
   const bounceTalk = cs.speaking ? Math.sin(t*9+cs.phase)*3 : 0;
   const sway = Math.sin(t*1.3+cs.phase)*0.05 + (cs.speaking?Math.sin(t*6+cs.phase)*0.03:0);
@@ -944,10 +1275,17 @@ function profileFor(i){
 }
 
 function speakText(text, profile){
+  // Metin uzunluğuna göre doğal bir okuma süresi tahmini: TTS hiç çalışmasa ya da
+  // anında hata verse bile (ses yüklü değil, motor yok vb.) sahne akışı bu süre kadar
+  // bekleyip doğal bir tempoda ilerler; TTS gerçekten konuşursa onend zaten gerçek süreyi verir.
+  const estDur = Math.min(7000, Math.max(1400, text.length*80));
   return new Promise(resolve=>{
+    let done=false;
+    const finish = ()=>{ if(!done){ done=true; clearTimeout(ceiling); resolve(); } };
+    const ceiling = setTimeout(finish, estDur+4000);
+
     if(!('speechSynthesis' in window)){
-      const dur = Math.min(4500, Math.max(900, text.length*65));
-      setTimeout(resolve, dur);
+      setTimeout(finish, estDur);
       return;
     }
     const u = new SpeechSynthesisUtterance(text);
@@ -955,12 +1293,9 @@ function speakText(text, profile){
     if(profile.voice) u.voice = profile.voice;
     u.pitch = profile.pitch;
     u.rate = profile.rate;
-    let done=false;
-    const finish = ()=>{ if(!done){ done=true; clearTimeout(safety); resolve(); } };
-    const safety = setTimeout(finish, Math.min(7000, Math.max(1400, text.length*75))+1500);
     u.onend = finish;
-    u.onerror = finish;
-    try{ window.speechSynthesis.speak(u); }catch(e){ finish(); }
+    u.onerror = ()=>{ setTimeout(finish, estDur); };
+    try{ window.speechSynthesis.speak(u); }catch(e){ setTimeout(finish, estDur); }
   });
 }
 
