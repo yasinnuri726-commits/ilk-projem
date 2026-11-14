@@ -304,8 +304,19 @@
     img.src = url;
   }
 
-  function indir() {
+  async function indir() {
     if (!pngUrl) return;
+    // Claude artifact olarak yayınlandığında indirme, sayfa sahibinin onayıyla yapılır
+    if (window.claude && window.claude.use) {
+      const indirme = await window.claude.use('downloads');
+      if (indirme) {
+        try { await indirme.save({ filename: 'kombinim.png', data: pngBlob }); bildir('Görsel kaydedildi'); }
+        catch (e) { if (!e || e.code !== 'declined') bildir('Kaydedilemedi; görsele basılı tutarak kaydet'); }
+        return;
+      }
+      bildir('Görsele basılı tutarak kaydedebilirsin');
+      return;
+    }
     const a = document.createElement('a');
     a.href = pngUrl; a.download = 'kombinim.png';
     document.body.appendChild(a); a.click(); a.remove();
