@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#fdebe6">
+<title>Kombin Atölyesi</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;700&family=Nunito:wght@600;700;800&display=swap">
+<link rel="stylesheet" href="css/stil.css">
+</head>
+<body>
+<!--GOVDE-->
+<main id="uygulama">
+  <!-- ÜST: sahne (arka plan + tam boy karakter) -->
+  <section class="sahne" aria-label="Karakter">
+    <svg id="arka" viewBox="0 0 360 640" preserveAspectRatio="xMidYMax slice" aria-hidden="true"><g id="arkaKatman"></g></svg>
+    <svg id="karakter" viewBox="0 0 300 620" preserveAspectRatio="xMidYMax meet" role="img" aria-label="Giydirdiğin karakter"><g id="nefes"></g></svg>
+    <h1 class="baslik">Kombin Atölyesi</h1>
+    <button class="yuvarlak" id="btnSes" type="button"></button>
+    <div id="bildirim" role="status" aria-live="polite"></div>
+  </section>
+
+  <!-- ALT: eylemler, kategori sekmeleri, seçenek kartları -->
+  <section class="panel" aria-label="Seçenekler">
+    <div class="eylemler">
+      <button id="btnGeri" type="button"><span>Geri Al</span></button>
+      <button id="btnSifirla" type="button"><span>Sıfırla</span></button>
+      <button id="btnRastgele" type="button" class="ana"><span>Rastgele Kombin</span></button>
+      <button id="btnKayitlar" type="button"><span>Kaydet</span></button>
+      <button id="btnDisa" type="button"><span>Dışa Aktar</span></button>
+    </div>
+    <nav class="sekmeler kaydir" id="sekmeler" role="tablist" aria-label="Kategoriler"></nav>
+    <div class="secenekler">
+      <div class="tarzlar kaydir" id="tarzlar" aria-label="Tarza göre filtrele"></div>
+      <div class="kartlar kaydir" id="kartlar"></div>
+      <div class="palet kaydir" id="palet" aria-label="Parça rengi"></div>
+    </div>
+  </section>
+</main>
+
+<!-- Alttan açılan sayfalar -->
+<div id="perde" hidden>
+  <section class="sayfa" id="sayfaKayit" aria-label="Kayıtlı kombinler" hidden>
+    <header><h2>Kombinlerim</h2><button class="yuvarlak sayfa-kapat" type="button" aria-label="Kapat"></button></header>
+    <p class="aciklama">Şu anki kombini bir yuvaya kaydet ya da kayıtlı bir kombini yeniden giy.</p>
+    <div class="yuvalar" id="yuvalar"></div>
+  </section>
+  <section class="sayfa" id="sayfaDisa" aria-label="Görsel olarak dışa aktar" hidden>
+    <header><h2>Kombinin hazır</h2><button class="yuvarlak sayfa-kapat" type="button" aria-label="Kapat"></button></header>
+    <img id="disaResim" alt="Kombininin görseli">
+    <p class="aciklama">Görsele basılı tutarak da galerine kaydedebilirsin.</p>
+    <div class="disa-dugmeler">
+      <button id="btnIndir" type="button" class="buyuk ana">Görseli İndir</button>
+      <button id="btnPaylas" type="button" class="buyuk" hidden>Paylaş</button>
+    </div>
+  </section>
+</div>
+<!--/GOVDE-->
+
+<!-- Sıra önemli: veri → çizim → ses → depo → uygulama -->
+<script src="js/veri.js"></script>
+<script src="js/cizim.js"></script>
+<script src="js/ses.js"></script>
+<script src="js/depo.js"></script>
+<script src="js/uygulama.js"></script>
+</body>
+</html>
