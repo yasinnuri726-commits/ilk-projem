@@ -1,0 +1,9 @@
+# Yol: klipai/docs/api/redocly.yaml
+extends:
+  - recommended
+rules:
+  # 401/403/429 tüm korumalı uçlar için ortaktır; açıklaması info.description'da.
+  operation-4xx-response: off
+  tag-description: off
+  info-license: off
+  no-server-example.com: off

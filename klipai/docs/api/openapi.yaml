@@ -1,0 +1,2287 @@
+openapi: 3.1.0
+info:
+  title: KlipAI API
+  version: 1.0.0
+  description: |
+    KlipAI mobil uygulamasının REST sözleşmesi. Canlı iş durumu için bkz. `docs/api/websocket.md`.
+
+    **Genel kurallar**
+    - Taban yol: `/v1`. Kimlik: `Authorization: Bearer <accessToken>` (JWT, 15 dk).
+    - Kimlikler UUIDv7. Zamanlar ISO-8601 UTC. Süreler milisaniye.
+    - Listeler imleç tabanlı sayfalanır: `?cursor=&limit=` → `{ items, nextCursor }`.
+    - Hatalar RFC 9457 `application/problem+json`; `code` alanı makine tarafından okunur,
+      mesaj `Accept-Language` (tr|en) ile yerelleştirilir.
+    - Yan etkili POST istekleri `Idempotency-Key` başlığını destekler (24 saat).
+    - İyimser kilit: `PATCH` isteklerinde `If-Match: <version>`; uyuşmazlıkta 412.
+    - Hız sınırı: `X-RateLimit-*` başlıkları; aşımda 429 + `Retry-After`.
+servers:
+  - url: https://api.klipai.app/v1
+    description: prod
+  - url: https://api.staging.klipai.app/v1
+    description: staging
+  - url: http://localhost:3000/v1
+    description: dev
+security:
+  - bearerAuth: []
+tags:
+  - name: Auth
+  - name: Me
+  - name: Channels
+  - name: Team
+  - name: Settings
+  - name: Templates
+  - name: Projects
+  - name: Source
+  - name: Candidates
+  - name: Clips
+  - name: Publishing
+  - name: Stats
+  - name: Billing
+  - name: Notifications
+  - name: System
+
+paths:
+  # ───────────── Auth ─────────────
+  /auth/register:
+    post:
+      tags: [Auth]
+      operationId: register
+      summary: E-posta ile kayıt
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password, displayName]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string, minLength: 10, maxLength: 128 }
+                displayName: { type: string, minLength: 1, maxLength: 80 }
+                locale: { $ref: '#/components/schemas/Locale' }
+                timezone: { type: string, examples: [Europe/Istanbul] }
+      responses:
+        '201': { $ref: '#/components/responses/AuthSession' }
+        '409': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
+        '429': { $ref: '#/components/responses/Problem' }
+  /auth/login:
+    post:
+      tags: [Auth]
+      operationId: login
+      summary: E-posta ile giriş
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string }
+      responses:
+        '200': { $ref: '#/components/responses/AuthSession' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '429': { $ref: '#/components/responses/Problem' }
+  /auth/google:
+    post:
+      tags: [Auth]
+      operationId: loginWithGoogle
+      summary: Google ID token ile giriş/kayıt
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [idToken]
+              properties:
+                idToken: { type: string, description: Google Sign-In'den alınan ID token; sunucuda doğrulanır. }
+      responses:
+        '200': { $ref: '#/components/responses/AuthSession' }
+        '401': { $ref: '#/components/responses/Problem' }
+  /auth/refresh:
+    post:
+      tags: [Auth]
+      operationId: refreshSession
+      summary: Token yenileme (rotasyonlu)
+      description: Her çağrıda refresh token değişir. Eski token yeniden kullanılırsa token ailesi iptal edilir.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refreshToken]
+              properties:
+                refreshToken: { type: string }
+      responses:
+        '200': { $ref: '#/components/responses/AuthSession' }
+        '401': { $ref: '#/components/responses/Problem' }
+  /auth/logout:
+    post:
+      tags: [Auth]
+      operationId: logout
+      summary: Oturumu kapat
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refreshToken]
+              properties:
+                refreshToken: { type: string }
+                allDevices: { type: boolean, default: false }
+      responses:
+        '204': { description: Kapatıldı }
+  /auth/email/verify:
+    post:
+      tags: [Auth]
+      operationId: verifyEmail
+      summary: E-posta adresini doğrula
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token: { type: string }
+      responses:
+        '204': { description: Doğrulandı }
+        '400': { $ref: '#/components/responses/Problem' }
+  /auth/password/forgot:
+    post:
+      tags: [Auth]
+      operationId: forgotPassword
+      summary: Parola sıfırlama e-postası iste
+      description: Hesap var olsun olmasın 202 döner (hesap sayımı engellenir).
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email: { type: string, format: email }
+      responses:
+        '202': { description: Kabul edildi }
+  /auth/password/reset:
+    post:
+      tags: [Auth]
+      operationId: resetPassword
+      summary: Parolayı sıfırla
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, password]
+              properties:
+                token: { type: string }
+                password: { type: string, minLength: 10, maxLength: 128 }
+      responses:
+        '204': { description: Parola değişti; tüm oturumlar kapatıldı }
+        '400': { $ref: '#/components/responses/Problem' }
+
+  # ───────────── Me ─────────────
+  /me:
+    get:
+      tags: [Me]
+      operationId: getMe
+      summary: Profili getir
+      responses:
+        '200':
+          description: Profil
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+    patch:
+      tags: [Me]
+      operationId: updateMe
+      summary: Profili güncelle
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                displayName: { type: string, maxLength: 80 }
+                locale: { $ref: '#/components/schemas/Locale' }
+                theme: { type: string, enum: [SYSTEM, LIGHT, DARK] }
+                timezone: { type: string }
+      responses:
+        '200':
+          description: Güncellendi
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '422': { $ref: '#/components/responses/Problem' }
+  /me/devices:
+    post:
+      tags: [Me]
+      operationId: registerDevice
+      summary: Push token kaydı (upsert)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [platform, pushToken]
+              properties:
+                platform: { type: string, enum: [IOS, ANDROID] }
+                pushToken: { type: string }
+                appVersion: { type: string }
+      responses:
+        '200':
+          description: Kaydedildi
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id]
+                properties:
+                  id: { $ref: '#/components/schemas/Id' }
+  /me/devices/{deviceId}:
+    delete:
+      tags: [Me]
+      operationId: unregisterDevice
+      summary: Push token kaydını sil
+      parameters:
+        - { name: deviceId, in: path, required: true, schema: { $ref: '#/components/schemas/Id' } }
+      responses:
+        '204': { description: Silindi }
+  /me/data-requests:
+    get:
+      tags: [Me]
+      operationId: listDataRequests
+      summary: KVKK/GDPR talepleri
+      responses:
+        '200':
+          description: Talepler
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/DataRequest' }
+    post:
+      tags: [Me]
+      operationId: createDataRequest
+      summary: Veri dışa aktarma veya hesap silme talebi
+      description: |
+        `EXPORT`: arşiv hazır olunca bildirim + 7 gün geçerli imzalı indirme bağlantısı.
+        `DELETE`: 30 gün bekleme süresi; bu sürede `DELETE /me/data-requests/{id}` ile geri alınır.
+        Silme için parola (veya Google hesabında güncel ID token) yeniden istenir.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [kind]
+              properties:
+                kind: { type: string, enum: [EXPORT, DELETE] }
+                password: { type: string }
+                idToken: { type: string }
+      responses:
+        '202':
+          description: Talep alındı
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DataRequest' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '409': { $ref: '#/components/responses/Problem' }
+  /me/data-requests/{requestId}:
+    delete:
+      tags: [Me]
+      operationId: cancelDataRequest
+      summary: Bekleyen talebi iptal et
+      parameters:
+        - { name: requestId, in: path, required: true, schema: { $ref: '#/components/schemas/Id' } }
+      responses:
+        '204': { description: İptal edildi }
+        '409': { $ref: '#/components/responses/Problem' }
+
+  # ───────────── Channels ─────────────
+  /channels:
+    get:
+      tags: [Channels]
+      operationId: listChannels
+      summary: Üyesi olunan kanallar
+      responses:
+        '200':
+          description: Kanallar
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/Channel' }
+  /channels/youtube/authorize:
+    post:
+      tags: [Channels]
+      operationId: startYoutubeAuth
+      summary: YouTube OAuth akışını başlat
+      description: |
+        Sunucu PKCE + imzalı `state` üretir. Uygulama `authUrl`'i sistem tarayıcısında açar;
+        Google `klipai://oauth/youtube` derin bağlantısına `code` ve `state` ile döner.
+        İstemci sırrı hiçbir zaman uygulamaya gelmez.
+      responses:
+        '200':
+          description: Yetkilendirme adresi
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [authUrl, state]
+                properties:
+                  authUrl: { type: string, format: uri }
+                  state: { type: string }
+        '402': { $ref: '#/components/responses/Problem' }
+  /channels/youtube/callback:
+    post:
+      tags: [Channels]
+      operationId: completeYoutubeAuth
+      summary: Kodu takas et ve kanalı bağla
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code, state]
+              properties:
+                code: { type: string }
+                state: { type: string }
+      responses:
+        '201':
+          description: Kanal bağlandı
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Channel' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '402':
+          description: Plan kanal sınırı aşıldı (`PLAN_CHANNEL_LIMIT`)
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '409': { $ref: '#/components/responses/Problem' }
+  /channels/{channelId}:
+    parameters:
+      - $ref: '#/components/parameters/ChannelId'
+    get:
+      tags: [Channels]
+      operationId: getChannel
+      summary: Kanalı getir
+      responses:
+        '200':
+          description: Kanal
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Channel' }
+        '404': { $ref: '#/components/responses/Problem' }
+    delete:
+      tags: [Channels]
+      operationId: disconnectChannel
+      summary: Kanal bağlantısını kes (OWNER)
+      description: Google tarafında token iptal edilir, planlı yayınlar iptal edilir.
+      responses:
+        '204': { description: Kesildi }
+        '403': { $ref: '#/components/responses/Problem' }
+  /channels/{channelId}/quota:
+    parameters:
+      - $ref: '#/components/parameters/ChannelId'
+    get:
+      tags: [Channels]
+      operationId: getChannelQuota
+      summary: Günlük YouTube kotası
+      responses:
+        '200':
+          description: Günlük YouTube kotası
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [unitsUsed, unitsLimit, uploadsRemaining, resetAt]
+                properties:
+                  unitsUsed: { type: integer }
+                  unitsLimit: { type: integer }
+                  uploadsRemaining: { type: integer }
+                  resetAt: { type: string, format: date-time }
+  /channels/{channelId}/best-times:
+    parameters:
+      - $ref: '#/components/parameters/ChannelId'
+    get:
+      tags: [Channels]
+      operationId: getBestTimes
+      summary: En iyi yayın saati önerisi
+      responses:
+        '200':
+          description: Kanalın saat diliminde önerilen aralıklar
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [timezone, basis, slots]
+                properties:
+                  timezone: { type: string }
+                  basis: { type: string, enum: [CHANNEL_HISTORY, CATEGORY_DEFAULT], description: Yeterli geçmiş yoksa kategori varsayılanı. }
+                  slots:
+                    type: array
+                    items:
+                      type: object
+                      required: [weekday, start, end, score]
+                      properties:
+                        weekday: { type: integer, minimum: 0, maximum: 6, description: 0 = Pazartesi }
+                        start: { $ref: '#/components/schemas/LocalTime' }
+                        end: { $ref: '#/components/schemas/LocalTime' }
+                        score: { type: number, minimum: 0, maximum: 1 }
+
+  # ───────────── Team ─────────────
+  /channels/{channelId}/members:
+    parameters:
+      - $ref: '#/components/parameters/ChannelId'
+    get:
+      tags: [Team]
+      operationId: listMembers
+      summary: Ekip üyeleri
+      responses:
+        '200':
+          description: Üyeler ve bekleyen davetler
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [members, invites]
+                properties:
+                  members:
+                    type: array
+                    items: { $ref: '#/components/schemas/Member' }
+                  invites:
+                    type: array
+                    items: { $ref: '#/components/schemas/Invite' }
+    post:
+      tags: [Team]
+      operationId: inviteMember
+      summary: Üye davet et (OWNER, Ajans planı)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, role]
+              properties:
+                email: { type: string, format: email }
+                role: { type: string, enum: [EDITOR, VIEWER] }
+      responses:
+        '201':
+          description: Davet gönderildi
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Invite' }
+        '402': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '409': { $ref: '#/components/responses/Problem' }
+  /channels/{channelId}/members/{userId}:
+    parameters:
+      - $ref: '#/components/parameters/ChannelId'
+      - { name: userId, in: path, required: true, schema: { $ref: '#/components/schemas/Id' } }
+    patch:
+      tags: [Team]
+      operationId: updateMemberRole
+      summary: Üye rolünü değiştir (OWNER)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [role]
+              properties:
+                role: { type: string, enum: [EDITOR, VIEWER] }
+      responses:
+        '200':
+          description: Güncellendi
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Member' }
+        '403': { $ref: '#/components/responses/Problem' }
+    delete:
+      tags: [Team]
+      operationId: removeMember
+      summary: Üyeyi çıkar
+      description: OWNER başkasını çıkarır; üye kendini çıkarabilir. OWNER çıkarılamaz.
+      responses:
+        '204': { description: Çıkarıldı }
+        '403': { $ref: '#/components/responses/Problem' }
+  /channels/{channelId}/invites/{inviteId}:
+    parameters:
+      - $ref: '#/components/parameters/ChannelId'
+      - { name: inviteId, in: path, required: true, schema: { $ref: '#/components/schemas/Id' } }
+    delete:
+      tags: [Team]
+      operationId: revokeInvite
+      summary: Daveti iptal et
+      responses:
+        '204': { description: İptal edildi }
+  /invites/accept:
+    post:
+      tags: [Team]
+      operationId: acceptInvite
+      summary: Daveti kabul et
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token: { type: string }
+      responses:
+        '200':
+          description: Kanala katıldı
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Channel' }
+        '400': { $ref: '#/components/responses/Problem' }
+
+  # ───────────── Settings ─────────────
+  /channels/{channelId}/settings:
+    parameters:
+      - $ref: '#/components/parameters/ChannelId'
+    get:
+      tags: [Settings]
+      operationId: getSettings
+      summary: Kanal ayarlarını getir
+      responses:
+        '200':
+          description: Kanal profili
+          headers:
+            ETag: { schema: { type: string }, description: Ayar sürümü }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Settings' }
+    patch:
+      tags: [Settings]
+      operationId: updateSettings
+      summary: Kısmi güncelleme (OWNER, EDITOR)
+      description: Grup nesneleri (subtitle, audio…) derin birleştirilir. Plan sınırını aşan değerler 402 döner (ör. Pro'da UHD_4K).
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SettingsPatch' }
+      responses:
+        '200':
+          description: Güncellendi
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Settings' }
+        '402': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '412': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
+  /channels/{channelId}/settings/apply-template:
+    parameters:
+      - $ref: '#/components/parameters/ChannelId'
+    post:
+      tags: [Settings]
+      operationId: applyTemplate
+      summary: Şablonu kanal ayarlarına uygula
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [templateId]
+              properties:
+                templateId: { $ref: '#/components/schemas/Id' }
+      responses:
+        '200':
+          description: Şablon uygulandı
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Settings' }
+  /assets/presign:
+    post:
+      tags: [Settings]
+      operationId: presignAsset
+      summary: Logo, giriş/çıkış animasyonu, hak belgesi için imzalı yükleme adresi
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [purpose, contentType, sizeBytes]
+              properties:
+                purpose: { type: string, enum: [BRAND_LOGO, BRAND_INTRO, BRAND_OUTRO, RIGHTS_EVIDENCE] }
+                channelId: { $ref: '#/components/schemas/Id' }
+                contentType: { type: string }
+                sizeBytes: { type: integer, maximum: 104857600 }
+      responses:
+        '200':
+          description: 15 dk geçerli PUT adresi
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [key, uploadUrl, headers, expiresAt]
+                properties:
+                  key: { type: string }
+                  uploadUrl: { type: string, format: uri }
+                  headers: { type: object, additionalProperties: { type: string } }
+                  expiresAt: { type: string, format: date-time }
+        '422': { $ref: '#/components/responses/Problem' }
+
+  # ───────────── Templates ─────────────
+  /templates:
+    get:
+      tags: [Templates]
+      operationId: listTemplates
+      summary: Şablonları listele
+      parameters:
+        - { name: kind, in: query, schema: { $ref: '#/components/schemas/TemplateKind' } }
+        - { name: channelId, in: query, schema: { $ref: '#/components/schemas/Id' } }
+      responses:
+        '200':
+          description: Sistem + kullanıcı şablonları
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/Template' }
+    post:
+      tags: [Templates]
+      operationId: createTemplate
+      summary: Şablon oluştur
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TemplateInput' }
+      responses:
+        '201':
+          description: Oluşturuldu
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Template' }
+        '422': { $ref: '#/components/responses/Problem' }
+  /templates/{templateId}:
+    parameters:
+      - { name: templateId, in: path, required: true, schema: { $ref: '#/components/schemas/Id' } }
+    patch:
+      tags: [Templates]
+      operationId: updateTemplate
+      summary: Şablonu güncelle
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TemplateInput' }
+      responses:
+        '200':
+          description: Güncellendi
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Template' }
+        '403': { $ref: '#/components/responses/Problem' }
+    delete:
+      tags: [Templates]
+      operationId: deleteTemplate
+      summary: Şablonu sil
+      responses:
+        '204': { description: Silindi }
+        '403': { $ref: '#/components/responses/Problem' }
+
+  # ───────────── Projects ─────────────
+  /projects:
+    get:
+      tags: [Projects]
+      operationId: listProjects
+      summary: Projeleri listele
+      parameters:
+        - { name: channelId, in: query, schema: { $ref: '#/components/schemas/Id' } }
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/ProjectStatus' } }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Projeler (yeniden eskiye)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, nextCursor]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/Project' }
+                  nextCursor: { $ref: '#/components/schemas/NextCursor' }
+    post:
+      tags: [Projects]
+      operationId: createProject
+      summary: Proje oluştur (hak beyanı zorunlu)
+      description: |
+        Proje `DRAFT` olarak açılır; hak beyanı IP, kullanıcı aracısı ve beyan metni özetiyle
+        değiştirilemez biçimde kaydedilir. Kaynak eklenince hat kendiliğinden başlar.
+        Kanal ayarları bu anda projeye kopyalanır (`settingsOverride` ile proje özelinde değiştirilebilir).
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [channelId, title, rights]
+              properties:
+                channelId: { $ref: '#/components/schemas/Id' }
+                title: { type: string, minLength: 1, maxLength: 120 }
+                rights: { $ref: '#/components/schemas/RightsDeclarationInput' }
+                settingsOverride: { $ref: '#/components/schemas/SettingsPatch' }
+      responses:
+        '201':
+          description: Oluşturuldu
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Project' }
+        '402': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
+  /projects/{projectId}:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    get:
+      tags: [Projects]
+      operationId: getProject
+      summary: Proje ayrıntısı
+      responses:
+        '200':
+          description: Proje ayrıntısı (aşama işleri dahil)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProjectDetail' }
+        '404': { $ref: '#/components/responses/Problem' }
+    delete:
+      tags: [Projects]
+      operationId: deleteProject
+      summary: Projeyi sil
+      description: Çalışan işler iptal edilir, kaynak ve çıktılar depolamadan silinir. Hak beyanı kaydı saklanır.
+      responses:
+        '204': { description: Silindi }
+        '403': { $ref: '#/components/responses/Problem' }
+  /projects/{projectId}/cancel:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    post:
+      tags: [Projects]
+      operationId: cancelProject
+      summary: Projeyi iptal et
+      responses:
+        '200':
+          description: İptal edildi; harcanmamış krediler iade edilir
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Project' }
+        '409': { $ref: '#/components/responses/Problem' }
+  /projects/{projectId}/retry:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    post:
+      tags: [Projects]
+      operationId: retryProject
+      summary: Başarısız aşamadan devam et
+      description: Tamamlanan aşamalar yeniden çalıştırılmaz; kredi yeniden düşülmez.
+      responses:
+        '202':
+          description: Yeniden kuyruğa alındı
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Project' }
+        '409': { $ref: '#/components/responses/Problem' }
+  /projects/{projectId}/transcript:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    get:
+      tags: [Projects]
+      operationId: getTranscript
+      summary: Transkript
+      parameters:
+        - { name: fromMs, in: query, schema: { type: integer, minimum: 0 } }
+        - { name: toMs, in: query, schema: { type: integer, minimum: 0 } }
+      responses:
+        '200':
+          description: Cümle bölütleri; kelime düzeyi veri için imzalı adres
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [language, segments, wordsUrl]
+                properties:
+                  language: { type: string }
+                  speakerCount: { type: integer }
+                  wordsUrl: { type: string, format: uri }
+                  segments:
+                    type: array
+                    items:
+                      type: object
+                      required: [index, startMs, endMs, text]
+                      properties:
+                        index: { type: integer }
+                        startMs: { type: integer }
+                        endMs: { type: integer }
+                        speaker: { type: [string, 'null'] }
+                        text: { type: string }
+        '404': { $ref: '#/components/responses/Problem' }
+
+  # ───────────── Source (alım) ─────────────
+  /projects/{projectId}/source/upload:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    post:
+      tags: [Source]
+      operationId: initUpload
+      summary: Parçalı yükleme başlat
+      description: |
+        S3 multipart oturumu açar. İstemci parçaları doğrudan depolamaya `PUT` eder.
+        Kredi ön denetimi `durationMs` ile yapılır; kesin düşüm ffprobe sonrasıdır.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [fileName, contentType, sizeBytes, durationMs]
+              properties:
+                fileName: { type: string, maxLength: 255 }
+                contentType: { type: string, enum: [video/mp4, video/quicktime, video/x-matroska, video/webm, audio/mpeg, audio/mp4, audio/wav] }
+                sizeBytes: { type: integer, minimum: 1, maximum: 21474836480 }
+                durationMs: { type: integer, minimum: 30000, maximum: 14400000 }
+                sha256: { type: string, pattern: '^[a-f0-9]{64}$' }
+      responses:
+        '201':
+          description: Oturum açıldı
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UploadSession' }
+        '402': { $ref: '#/components/responses/Problem' }
+        '409': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
+    get:
+      tags: [Source]
+      operationId: getUpload
+      summary: Yükleme durumu (devam ettirme için)
+      responses:
+        '200':
+          description: Oturum ve yüklenmiş parçalar
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UploadSession' }
+        '404': { $ref: '#/components/responses/Problem' }
+    delete:
+      tags: [Source]
+      operationId: abortUpload
+      summary: Yüklemeyi iptal et
+      responses:
+        '204': { description: Oturum iptal edildi }
+  /projects/{projectId}/source/upload/parts:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    post:
+      tags: [Source]
+      operationId: presignParts
+      summary: Parçalar için imzalı adres al
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [partNumbers]
+              properties:
+                partNumbers:
+                  type: array
+                  minItems: 1
+                  maxItems: 50
+                  items: { type: integer, minimum: 1, maximum: 10000 }
+      responses:
+        '200':
+          description: 30 dk geçerli adresler
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [parts]
+                properties:
+                  parts:
+                    type: array
+                    items:
+                      type: object
+                      required: [partNumber, url]
+                      properties:
+                        partNumber: { type: integer }
+                        url: { type: string, format: uri }
+  /projects/{projectId}/source/upload/complete:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    post:
+      tags: [Source]
+      operationId: completeUpload
+      summary: Yüklemeyi tamamla ve hattı başlat
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [parts]
+              properties:
+                parts:
+                  type: array
+                  minItems: 1
+                  items:
+                    type: object
+                    required: [partNumber, etag]
+                    properties:
+                      partNumber: { type: integer }
+                      etag: { type: string }
+      responses:
+        '202':
+          description: Alım işi kuyruğa alındı
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Project' }
+        '409': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
+  /projects/{projectId}/source/link:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    post:
+      tags: [Source]
+      operationId: ingestFromLink
+      summary: Bağlantıdan alım
+      description: |
+        Doğrudan medya dosyası adresleri (HTTPS; mp4/mov/mkv/webm/mp3/m3u8) ve paylaşıma açık
+        bulut depolama bağlantıları desteklenir. Sunucu adresi SSRF'e karşı doğrular
+        (yalnızca genel IP, yönlendirme sınırı, boyut sınırı). Video platformu sayfa adresleri
+        (`UNSUPPORTED_SOURCE`) kabul edilmez.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [url]
+              properties:
+                url: { type: string, format: uri, maxLength: 2048 }
+      responses:
+        '202':
+          description: Alım işi kuyruğa alındı
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Project' }
+        '402': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
+
+  # ───────────── Candidates ─────────────
+  /projects/{projectId}/candidates:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    get:
+      tags: [Candidates]
+      operationId: listCandidates
+      summary: Kesit adayları
+      parameters:
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/CandidateStatus' } }
+        - { name: minScore, in: query, schema: { type: integer, minimum: 0, maximum: 100 } }
+      responses:
+        '200':
+          description: Adaylar (puana göre azalan)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/Candidate' }
+  /projects/{projectId}/candidates/select:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    post:
+      tags: [Candidates]
+      operationId: selectCandidates
+      summary: Adayları klibe dönüştür ve kurguya gönder
+      description: Seçilmeyen adaylar değişmez. Aylık klip hakkı yetmezse hiçbir aday işlenmez (402).
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [candidateIds]
+              properties:
+                candidateIds:
+                  type: array
+                  minItems: 1
+                  maxItems: 30
+                  items: { $ref: '#/components/schemas/Id' }
+                rejectOthers: { type: boolean, default: false }
+      responses:
+        '202':
+          description: Klipler oluşturuldu
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [clips]
+                properties:
+                  clips:
+                    type: array
+                    items: { $ref: '#/components/schemas/Clip' }
+        '402': { $ref: '#/components/responses/Problem' }
+        '409': { $ref: '#/components/responses/Problem' }
+  /candidates/{candidateId}/preview:
+    parameters:
+      - { name: candidateId, in: path, required: true, schema: { $ref: '#/components/schemas/Id' } }
+    get:
+      tags: [Candidates]
+      operationId: getCandidatePreview
+      summary: Aday önizlemesi (proxy üzerinden HLS aralığı)
+      responses:
+        '200':
+          description: 10 dk geçerli imzalı oynatma adresi
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Playback' }
+
+  # ───────────── Clips ─────────────
+  /clips:
+    get:
+      tags: [Clips]
+      operationId: listClips
+      summary: Klipleri listele
+      parameters:
+        - { name: channelId, in: query, schema: { $ref: '#/components/schemas/Id' } }
+        - { name: projectId, in: query, schema: { $ref: '#/components/schemas/Id' } }
+        - name: status
+          in: query
+          style: form
+          explode: false
+          schema:
+            type: array
+            items: { $ref: '#/components/schemas/ClipStatus' }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Klipler
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, nextCursor]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/Clip' }
+                  nextCursor: { $ref: '#/components/schemas/NextCursor' }
+  /clips/{clipId}:
+    parameters:
+      - $ref: '#/components/parameters/ClipId'
+    get:
+      tags: [Clips]
+      operationId: getClip
+      summary: Klip ayrıntısı
+      responses:
+        '200':
+          description: Klip ayrıntısı
+          headers:
+            ETag: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ClipDetail' }
+        '404': { $ref: '#/components/responses/Problem' }
+    patch:
+      tags: [Clips]
+      operationId: updateClip
+      summary: Kesit, kurgu tarifi, yorum metni veya meta veriyi düzenle
+      description: |
+        Yalnızca `CANDIDATE`, `READY`, `FAILED` durumlarında. Görüntüyü etkileyen alanlar
+        (`startMs`, `endMs`, `editSpec`, `commentaryScript`, `commentaryFormat`) değişirse çıktı
+        geçersizleşir; yeniden üretmek için `POST /clips/{id}/render` çağrılır.
+        Çevrimdışı taslaklar bu uçla eşitlenir; 412'de istemci birleştirme ekranı gösterir.
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ClipPatch' }
+      responses:
+        '200':
+          description: Güncellendi
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ClipDetail' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '409': { $ref: '#/components/responses/Problem' }
+        '412': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
+    delete:
+      tags: [Clips]
+      operationId: archiveClip
+      summary: Klibi arşivle
+      description: Klibi arşivler; planlı yayın varsa iptal eder. YouTube'daki video silinmez.
+      responses:
+        '204': { description: Arşivlendi }
+  /clips/{clipId}/render:
+    parameters:
+      - $ref: '#/components/parameters/ClipId'
+    post:
+      tags: [Clips]
+      operationId: renderClip
+      summary: Klibi (yeniden) üret
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                stages:
+                  type: array
+                  description: Boşsa değişen alanlara göre gereken en küçük aşama kümesi seçilir.
+                  items: { type: string, enum: [EDIT, ORIGINALIZE, METADATA, QC] }
+      responses:
+        '202':
+          description: Kuyruğa alındı
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ClipDetail' }
+        '409': { $ref: '#/components/responses/Problem' }
+  /clips/{clipId}/metadata/regenerate:
+    parameters:
+      - $ref: '#/components/parameters/ClipId'
+    post:
+      tags: [Clips]
+      operationId: regenerateMetadata
+      summary: Başlık/açıklama/etiket/kapak yeniden üret
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                fields:
+                  type: array
+                  items: { type: string, enum: [TITLES, DESCRIPTION, TAGS, THUMBNAIL] }
+                hint: { type: string, maxLength: 300 }
+      responses:
+        '202':
+          description: Kuyruğa alındı
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ClipDetail' }
+  /clips/{clipId}/playback:
+    parameters:
+      - $ref: '#/components/parameters/ClipId'
+    get:
+      tags: [Clips]
+      operationId: getClipPlayback
+      summary: Klip oynatma adresi
+      responses:
+        '200':
+          description: İmzalı CDN adresleri
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Playback' }
+        '409': { $ref: '#/components/responses/Problem' }
+  /clips/{clipId}/approve:
+    parameters:
+      - $ref: '#/components/parameters/ClipId'
+    post:
+      tags: [Publishing]
+      operationId: approveClip
+      summary: Onayla ve planla (OWNER, EDITOR)
+      description: |
+        `scheduledAt` verilmezse kanal planındaki bir sonraki boş yuva seçilir.
+        `QC` durumu `FLAGGED` olan klip `acknowledgeQc: true` olmadan onaylanamaz.
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ScheduleInput' }
+      responses:
+        '200':
+          description: Planlandı
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ClipDetail' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '409': { $ref: '#/components/responses/Problem' }
+  /clips/{clipId}/schedule:
+    parameters:
+      - $ref: '#/components/parameters/ClipId'
+    put:
+      tags: [Publishing]
+      operationId: rescheduleClip
+      summary: Yayın zamanını değiştir
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ScheduleInput' }
+      responses:
+        '200':
+          description: Yeniden planlandı
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ClipDetail' }
+        '409': { $ref: '#/components/responses/Problem' }
+    delete:
+      tags: [Publishing]
+      operationId: unscheduleClip
+      summary: Planı iptal et (klip READY'e döner)
+      responses:
+        '200':
+          description: İptal edildi
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ClipDetail' }
+        '409': { $ref: '#/components/responses/Problem' }
+  /clips/{clipId}/publish:
+    parameters:
+      - $ref: '#/components/parameters/ClipId'
+    post:
+      tags: [Publishing]
+      operationId: publishNow
+      summary: Hemen yayınla / başarısız yayını yeniden dene
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '202':
+          description: Yayın kuyruğuna alındı
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ClipDetail' }
+        '409': { $ref: '#/components/responses/Problem' }
+        '429':
+          description: Günlük YouTube kotası doldu (`YOUTUBE_QUOTA_EXHAUSTED`)
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+  /channels/{channelId}/calendar:
+    parameters:
+      - $ref: '#/components/parameters/ChannelId'
+    get:
+      tags: [Publishing]
+      operationId: getCalendar
+      summary: Yayın takvimi
+      parameters:
+        - { name: from, in: query, required: true, schema: { type: string, format: date-time } }
+        - { name: to, in: query, required: true, schema: { type: string, format: date-time }, description: En çok 62 gün. }
+      responses:
+        '200':
+          description: Planlı ve yayınlanmış klipler + boş yuvalar
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [timezone, entries, openSlots]
+                properties:
+                  timezone: { type: string }
+                  entries:
+                    type: array
+                    items:
+                      type: object
+                      required: [clipId, title, at, status]
+                      properties:
+                        clipId: { $ref: '#/components/schemas/Id' }
+                        title: { type: string }
+                        thumbnailUrl: { type: [string, 'null'], format: uri }
+                        at: { type: string, format: date-time }
+                        status: { $ref: '#/components/schemas/PublishStatus' }
+                        youtubeVideoId: { type: [string, 'null'] }
+                  openSlots:
+                    type: array
+                    items: { type: string, format: date-time }
+
+  # ───────────── Stats ─────────────
+  /dashboard:
+    get:
+      tags: [Stats]
+      operationId: getDashboard
+      summary: Ana panel (kuyruk + günlük özet)
+      parameters:
+        - { name: channelId, in: query, schema: { $ref: '#/components/schemas/Id' }, description: Verilmezse tüm kanallar. }
+      responses:
+        '200':
+          description: Panel
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Dashboard' }
+  /channels/{channelId}/stats:
+    parameters:
+      - $ref: '#/components/parameters/ChannelId'
+    get:
+      tags: [Stats]
+      operationId: getChannelStats
+      summary: Kanal istatistikleri
+      parameters:
+        - { name: range, in: query, schema: { type: string, enum: [7d, 28d, 90d], default: 28d } }
+      responses:
+        '200':
+          description: Kanal istatistikleri
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ChannelStats' }
+  /clips/{clipId}/stats:
+    parameters:
+      - $ref: '#/components/parameters/ClipId'
+    get:
+      tags: [Stats]
+      operationId: getClipStats
+      summary: Klip istatistikleri
+      responses:
+        '200':
+          description: 24 saat ve 7 gün anlık görüntüleri
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [windows]
+                properties:
+                  windows:
+                    type: array
+                    items: { $ref: '#/components/schemas/ClipStatsWindow' }
+
+  # ───────────── Billing ─────────────
+  /billing/subscription:
+    get:
+      tags: [Billing]
+      operationId: getSubscription
+      summary: Plan, haklar ve dönem kullanımı
+      responses:
+        '200':
+          description: Abonelik
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Subscription' }
+  /billing/sync:
+    post:
+      tags: [Billing]
+      operationId: syncSubscription
+      summary: Satın alma sonrası RevenueCat'ten anında eşitle
+      description: Webhook gecikmesine karşı; sunucu RevenueCat REST API'sinden abone durumunu çeker.
+      responses:
+        '200':
+          description: Güncel abonelik
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Subscription' }
+  /billing/usage:
+    get:
+      tags: [Billing]
+      operationId: listUsage
+      summary: Kredi kullanım geçmişi
+      parameters:
+        - { name: period, in: query, schema: { type: string, pattern: '^\d{4}-\d{2}$' } }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Kredi defteri
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, nextCursor]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/UsageEntry' }
+                  nextCursor: { $ref: '#/components/schemas/NextCursor' }
+  /webhooks/revenuecat:
+    post:
+      tags: [Billing]
+      operationId: revenuecatWebhook
+      summary: RevenueCat olayları (sunucudan sunucuya)
+      description: Paylaşılan gizli anahtarlı `Authorization` başlığı sabit zamanlı karşılaştırılır; `event.id` ile idempotent.
+      security:
+        - webhookSecret: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [event]
+              properties:
+                event:
+                  type: object
+                  required: [id, type, app_user_id]
+                  additionalProperties: true
+                  properties:
+                    id: { type: string }
+                    type: { type: string }
+                    app_user_id: { type: string }
+      responses:
+        '200': { description: İşlendi veya daha önce işlenmiş }
+        '401': { $ref: '#/components/responses/Problem' }
+
+  # ───────────── Notifications ─────────────
+  /notifications:
+    get:
+      tags: [Notifications]
+      operationId: listNotifications
+      summary: Bildirimleri listele
+      parameters:
+        - { name: unreadOnly, in: query, schema: { type: boolean, default: false } }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Bildirimler
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, nextCursor, unreadCount]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/Notification' }
+                  nextCursor: { $ref: '#/components/schemas/NextCursor' }
+                  unreadCount: { type: integer }
+  /notifications/read:
+    post:
+      tags: [Notifications]
+      operationId: markNotificationsRead
+      summary: Bildirimleri okundu işaretle
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                ids:
+                  type: array
+                  items: { $ref: '#/components/schemas/Id' }
+                all: { type: boolean, default: false }
+      responses:
+        '204': { description: Okundu işaretlendi }
+
+  # ───────────── System ─────────────
+  /health:
+    get:
+      tags: [System]
+      operationId: health
+      summary: Sağlık denetimi
+      security: []
+      responses:
+        '200':
+          description: Sağlıklı
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, version]
+                properties:
+                  status: { type: string, enum: [ok, degraded] }
+                  version: { type: string }
+                  checks: { type: object, additionalProperties: { type: string } }
+  /realtime/ticket:
+    post:
+      tags: [System]
+      operationId: createRealtimeTicket
+      summary: WebSocket bağlantısı için tek kullanımlık bilet
+      description: Erişim token'ının URL'de/loglarda görünmemesi için 30 sn geçerli bilet verilir.
+      responses:
+        '200':
+          description: Bilet
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ticket, url, expiresAt]
+                properties:
+                  ticket: { type: string }
+                  url: { type: string, format: uri }
+                  expiresAt: { type: string, format: date-time }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    webhookSecret:
+      type: apiKey
+      in: header
+      name: Authorization
+
+  parameters:
+    ChannelId:
+      name: channelId
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Id' }
+    ProjectId:
+      name: projectId
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Id' }
+    ClipId:
+      name: clipId
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Id' }
+    Cursor:
+      name: cursor
+      in: query
+      schema: { type: string }
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+    IfMatch:
+      name: If-Match
+      in: header
+      required: true
+      description: Kaynağın `version` değeri.
+      schema: { type: string }
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      schema: { type: string, format: uuid }
+
+  responses:
+    Problem:
+      description: Hata
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    AuthSession:
+      description: Oturum
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/AuthSession' }
+
+  schemas:
+    Id: { type: string, format: uuid }
+    NextCursor: { type: [string, 'null'] }
+    LocalTime: { type: string, pattern: '^([01]\d|2[0-3]):[0-5]\d$', examples: ['19:30'] }
+    Locale: { type: string, enum: [TR, EN] }
+    MemberRole: { type: string, enum: [OWNER, EDITOR, VIEWER] }
+    Plan: { type: string, enum: [FREE, PRO, AGENCY] }
+    AutomationMode: { type: string, enum: [FULL_AUTO, APPROVAL, DRAFT_ONLY] }
+    AspectRatio: { type: string, enum: [PORTRAIT_9_16, SQUARE_1_1, LANDSCAPE_16_9] }
+    Resolution: { type: string, enum: [HD_720, FHD_1080, UHD_4K] }
+    CommentaryFormat: { type: string, enum: [NONE, REACTION, ANALYSIS, RANKING] }
+    PrivacyStatus: { type: string, enum: [PUBLIC, UNLISTED, PRIVATE] }
+    TemplateKind: { type: string, enum: [SUBTITLE, COMMENTARY, BRAND, PROFILE] }
+    ProjectStatus:
+      type: string
+      enum: [DRAFT, INGESTING, ANALYZING, GENERATING_CANDIDATES, SCORING, AWAITING_SELECTION, PRODUCING, COMPLETED, FAILED, CANCELED]
+    PipelineStage:
+      type: string
+      enum: [INGEST, ANALYZE, CANDIDATES, SCORE, EDIT, ORIGINALIZE, METADATA, QC, PUBLISH, LEARN]
+    JobStatus: { type: string, enum: [QUEUED, ACTIVE, SUCCEEDED, FAILED, CANCELED] }
+    CandidateStatus: { type: string, enum: [PROPOSED, SCORED, SELECTED, REJECTED] }
+    ClipStatus:
+      type: string
+      enum: [CANDIDATE, EDITING, READY, SCHEDULED, PUBLISHING, PUBLISHED, FAILED, ARCHIVED]
+    QcStatus: { type: string, enum: [PENDING, PASSED, AUTO_FIXED, FLAGGED] }
+    PublishStatus:
+      type: string
+      enum: [SCHEDULED, QUEUED, UPLOADING, PROCESSING, PUBLISHED, FAILED, CANCELED]
+
+    Problem:
+      type: object
+      required: [type, title, status, code]
+      properties:
+        type: { type: string, format: uri-reference }
+        title: { type: string }
+        status: { type: integer }
+        code:
+          type: string
+          description: Kararlı hata kodu.
+          examples: [VALIDATION_FAILED, INVALID_CREDENTIALS, PLAN_CLIP_LIMIT, PLAN_CHANNEL_LIMIT, PLAN_FEATURE_LOCKED, INSUFFICIENT_CREDITS, INVALID_STATE, VERSION_CONFLICT, UNSUPPORTED_SOURCE, YOUTUBE_QUOTA_EXHAUSTED, CHANNEL_REAUTH_REQUIRED, RATE_LIMITED]
+        detail: { type: string }
+        traceId: { type: string }
+        errors:
+          type: array
+          description: Alan düzeyinde doğrulama hataları.
+          items:
+            type: object
+            required: [path, message]
+            properties:
+              path: { type: string }
+              message: { type: string }
+
+    AuthSession:
+      type: object
+      required: [accessToken, refreshToken, expiresIn, user]
+      properties:
+        accessToken: { type: string }
+        refreshToken: { type: string }
+        expiresIn: { type: integer, description: Saniye. }
+        user: { $ref: '#/components/schemas/User' }
+
+    User:
+      type: object
+      required: [id, email, displayName, locale, theme, timezone, emailVerified, createdAt]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        email: { type: string, format: email }
+        displayName: { type: string }
+        avatarUrl: { type: [string, 'null'], format: uri }
+        locale: { $ref: '#/components/schemas/Locale' }
+        theme: { type: string, enum: [SYSTEM, LIGHT, DARK] }
+        timezone: { type: string }
+        emailVerified: { type: boolean }
+        deletionScheduledAt: { type: [string, 'null'], format: date-time }
+        createdAt: { type: string, format: date-time }
+
+    DataRequest:
+      type: object
+      required: [id, kind, status, requestedAt]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        kind: { type: string, enum: [EXPORT, DELETE] }
+        status: { type: string, enum: [PENDING, PROCESSING, COMPLETED, FAILED, CANCELED] }
+        downloadUrl: { type: [string, 'null'], format: uri }
+        expiresAt: { type: [string, 'null'], format: date-time }
+        requestedAt: { type: string, format: date-time }
+        completedAt: { type: [string, 'null'], format: date-time }
+
+    Channel:
+      type: object
+      required: [id, youtubeChannelId, title, status, role, createdAt]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        youtubeChannelId: { type: string }
+        title: { type: string }
+        handle: { type: [string, 'null'] }
+        thumbnailUrl: { type: [string, 'null'], format: uri }
+        status: { type: string, enum: [ACTIVE, REAUTH_REQUIRED, DISCONNECTED] }
+        role: { $ref: '#/components/schemas/MemberRole' }
+        createdAt: { type: string, format: date-time }
+
+    Member:
+      type: object
+      required: [userId, displayName, email, role, joinedAt]
+      properties:
+        userId: { $ref: '#/components/schemas/Id' }
+        displayName: { type: string }
+        email: { type: string, format: email }
+        avatarUrl: { type: [string, 'null'], format: uri }
+        role: { $ref: '#/components/schemas/MemberRole' }
+        joinedAt: { type: string, format: date-time }
+
+    Invite:
+      type: object
+      required: [id, email, role, expiresAt]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        email: { type: string, format: email }
+        role: { $ref: '#/components/schemas/MemberRole' }
+        expiresAt: { type: string, format: date-time }
+
+    PublishWindow:
+      type: object
+      required: [start, end]
+      properties:
+        start: { $ref: '#/components/schemas/LocalTime' }
+        end: { $ref: '#/components/schemas/LocalTime' }
+
+    SubtitleSettings:
+      type: object
+      properties:
+        enabled: { type: boolean, default: true }
+        templateId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
+        fontFamily: { type: string, default: Montserrat-ExtraBold }
+        fontSize: { type: integer, minimum: 24, maximum: 160, default: 72, description: 1080 piksel genişliğe göre. }
+        color: { type: string, pattern: '^#[0-9A-Fa-f]{6}$', default: '#FFFFFF' }
+        highlightColor: { type: string, pattern: '^#[0-9A-Fa-f]{6}$', default: '#FFE500' }
+        strokeColor: { type: string, pattern: '^#[0-9A-Fa-f]{6}$', default: '#000000' }
+        position: { type: string, enum: [TOP, MIDDLE, BOTTOM], default: BOTTOM }
+        animation: { type: string, enum: [WORD_POP, KARAOKE, TYPEWRITER, NONE], default: WORD_POP }
+        maxWordsPerLine: { type: integer, minimum: 1, maximum: 8, default: 3 }
+        uppercase: { type: boolean, default: true }
+        language: { type: string, default: source, description: '`source` veya ISO 639-1; kaynaktan farklıysa çevrilir.' }
+
+    CommentarySettings:
+      type: object
+      properties:
+        format: { $ref: '#/components/schemas/CommentaryFormat' }
+        tone: { type: string, enum: [FUNNY, SERIOUS, INFORMATIVE], default: INFORMATIVE }
+        customPrompt: { type: string, maxLength: 1000 }
+        length: { type: string, enum: [SHORT, MEDIUM, LONG], default: SHORT }
+        language: { type: string, default: tr }
+
+    AudioSettings:
+      type: object
+      properties:
+        ttsVoiceId: { type: string }
+        ttsSpeed: { type: number, minimum: 0.7, maximum: 1.4, default: 1 }
+        musicGenre: { type: string, enum: [NONE, UPBEAT, CINEMATIC, LOFI, DRAMATIC, COMEDY], default: NONE }
+        musicLevelDb: { type: number, minimum: -40, maximum: -6, default: -22 }
+        ducking: { type: boolean, default: true }
+
+    BrandSettings:
+      type: object
+      properties:
+        logoKey: { type: [string, 'null'] }
+        watermarkPosition: { type: string, enum: [TOP_LEFT, TOP_RIGHT, BOTTOM_LEFT, BOTTOM_RIGHT, NONE], default: NONE }
+        watermarkOpacity: { type: number, minimum: 0.1, maximum: 1, default: 0.7 }
+        introKey: { type: [string, 'null'] }
+        outroKey: { type: [string, 'null'] }
+        palette:
+          type: array
+          maxItems: 5
+          items: { type: string, pattern: '^#[0-9A-Fa-f]{6}$' }
+
+    MetadataSettings:
+      type: object
+      properties:
+        titleLanguage: { type: string, default: tr }
+        fixedTags:
+          type: array
+          maxItems: 30
+          items: { type: string, maxLength: 50 }
+        descriptionTemplate: { type: string, maxLength: 3000, description: 'Yer tutucular: {{description}}, {{hashtags}}, {{sourceTitle}}.' }
+        categoryId: { type: string, default: '24' }
+        madeForKids: { type: boolean, default: false }
+
+    SettingsPatch:
+      type: object
+      properties:
+        automationMode: { $ref: '#/components/schemas/AutomationMode' }
+        dailyClipCount: { type: integer, minimum: 1, maximum: 24 }
+        timezone: { type: string }
+        publishWindows:
+          type: array
+          minItems: 1
+          maxItems: 6
+          items: { $ref: '#/components/schemas/PublishWindow' }
+        useBestTime: { type: boolean }
+        defaultPrivacy: { $ref: '#/components/schemas/PrivacyStatus' }
+        minDurationSec: { type: integer, minimum: 15, maximum: 90 }
+        maxDurationSec: { type: integer, minimum: 15, maximum: 90 }
+        minScore: { type: integer, minimum: 0, maximum: 100 }
+        maxClipsPerVideo: { type: integer, minimum: 1, maximum: 30 }
+        aspectRatio: { $ref: '#/components/schemas/AspectRatio' }
+        resolution: { $ref: '#/components/schemas/Resolution' }
+        subtitle: { $ref: '#/components/schemas/SubtitleSettings' }
+        commentary: { $ref: '#/components/schemas/CommentarySettings' }
+        audio: { $ref: '#/components/schemas/AudioSettings' }
+        brand: { $ref: '#/components/schemas/BrandSettings' }
+        metadata: { $ref: '#/components/schemas/MetadataSettings' }
+
+    Settings:
+      allOf:
+        - $ref: '#/components/schemas/SettingsPatch'
+        - type: object
+          required: [channelId, version, updatedAt, automationMode, dailyClipCount, timezone, publishWindows, minDurationSec, maxDurationSec, minScore, maxClipsPerVideo, aspectRatio, resolution, subtitle, commentary, audio, brand, metadata]
+          properties:
+            channelId: { $ref: '#/components/schemas/Id' }
+            version: { type: integer }
+            updatedAt: { type: string, format: date-time }
+
+    TemplateInput:
+      type: object
+      required: [kind, name, config]
+      properties:
+        kind: { $ref: '#/components/schemas/TemplateKind' }
+        name: { type: string, minLength: 1, maxLength: 60 }
+        channelId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
+        config:
+          description: '`kind`e göre SubtitleSettings | CommentarySettings | BrandSettings | SettingsPatch.'
+          type: object
+          additionalProperties: true
+
+    Template:
+      allOf:
+        - $ref: '#/components/schemas/TemplateInput'
+        - type: object
+          required: [id, isSystem, createdAt]
+          properties:
+            id: { $ref: '#/components/schemas/Id' }
+            isSystem: { type: boolean }
+            previewUrl: { type: [string, 'null'], format: uri }
+            createdAt: { type: string, format: date-time }
+
+    RightsDeclarationInput:
+      type: object
+      required: [basis, termsVersion, accepted]
+      properties:
+        basis: { type: string, enum: [OWN_CONTENT, LICENSED, PUBLIC_DOMAIN, PERMITTED] }
+        note: { type: string, maxLength: 500, description: LICENSED ve PERMITTED için zorunlu (lisans/izin kaynağı). }
+        evidenceUrl: { type: string, format: uri }
+        evidenceKey: { type: string, description: '`/assets/presign` ile yüklenen belge.' }
+        termsVersion: { type: string, description: Kullanıcıya gösterilen beyan metninin sürümü. }
+        accepted: { type: boolean, const: true }
+
+    Project:
+      type: object
+      required: [id, channelId, title, status, progress, createdAt, updatedAt]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        channelId: { $ref: '#/components/schemas/Id' }
+        title: { type: string }
+        status: { $ref: '#/components/schemas/ProjectStatus' }
+        progress: { type: integer, minimum: 0, maximum: 100 }
+        currentStage: { oneOf: [{ $ref: '#/components/schemas/PipelineStage' }, { type: 'null' }] }
+        durationMs: { type: [integer, 'null'] }
+        thumbnailUrl: { type: [string, 'null'], format: uri }
+        candidateCount: { type: integer }
+        clipCount: { type: integer }
+        error: { oneOf: [{ $ref: '#/components/schemas/JobError' }, { type: 'null' }] }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    JobError:
+      type: object
+      required: [code, message, retryable]
+      properties:
+        code: { type: string }
+        message: { type: string }
+        retryable: { type: boolean }
+
+    StageJob:
+      type: object
+      required: [stage, status, attempt, progress]
+      properties:
+        stage: { $ref: '#/components/schemas/PipelineStage' }
+        status: { $ref: '#/components/schemas/JobStatus' }
+        attempt: { type: integer }
+        progress: { type: integer }
+        startedAt: { type: [string, 'null'], format: date-time }
+        finishedAt: { type: [string, 'null'], format: date-time }
+        error: { oneOf: [{ $ref: '#/components/schemas/JobError' }, { type: 'null' }] }
+
+    ProjectDetail:
+      allOf:
+        - $ref: '#/components/schemas/Project'
+        - type: object
+          required: [jobs, rights]
+          properties:
+            jobs:
+              type: array
+              items: { $ref: '#/components/schemas/StageJob' }
+            rights:
+              type: object
+              required: [basis, acceptedAt]
+              properties:
+                basis: { type: string, enum: [OWN_CONTENT, LICENSED, PUBLIC_DOMAIN, PERMITTED] }
+                acceptedAt: { type: string, format: date-time }
+            source:
+              type: [object, 'null']
+              properties:
+                ingestType: { type: string, enum: [UPLOAD, LINK] }
+                status: { type: string, enum: [PENDING, UPLOADING, UPLOADED, FETCHING, PROBING, READY, FAILED] }
+                originalName: { type: [string, 'null'] }
+                sizeBytes: { type: [integer, 'null'], format: int64 }
+                width: { type: [integer, 'null'] }
+                height: { type: [integer, 'null'] }
+            creditsCharged: { type: integer }
+
+    UploadSession:
+      type: object
+      required: [uploadId, partSize, partCount, uploadedParts, expiresAt]
+      properties:
+        uploadId: { type: string }
+        partSize: { type: integer, description: Bayt; son parça hariç tüm parçalar bu boyutta. }
+        partCount: { type: integer }
+        uploadedParts:
+          type: array
+          items:
+            type: object
+            required: [partNumber, etag, size]
+            properties:
+              partNumber: { type: integer }
+              etag: { type: string }
+              size: { type: integer }
+        expiresAt: { type: string, format: date-time }
+
+    ScoreBreakdown:
+      type: object
+      required: [hook, emotion, standalone, curiosity, shareability]
+      description: Her ölçüt 0-100. Toplam = hook×0.30 + emotion×0.25 + standalone×0.20 + curiosity×0.15 + shareability×0.10.
+      properties:
+        hook: { type: integer, minimum: 0, maximum: 100 }
+        emotion: { type: integer, minimum: 0, maximum: 100 }
+        standalone: { type: integer, minimum: 0, maximum: 100 }
+        curiosity: { type: integer, minimum: 0, maximum: 100 }
+        shareability: { type: integer, minimum: 0, maximum: 100 }
+
+    Candidate:
+      type: object
+      required: [id, projectId, startMs, endMs, text, status]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        projectId: { $ref: '#/components/schemas/Id' }
+        startMs: { type: integer }
+        endMs: { type: integer }
+        text: { type: string }
+        status: { $ref: '#/components/schemas/CandidateStatus' }
+        score: { type: [integer, 'null'], minimum: 0, maximum: 100 }
+        breakdown: { oneOf: [{ $ref: '#/components/schemas/ScoreBreakdown' }, { type: 'null' }] }
+        rationale: { type: [string, 'null'] }
+        hookText: { type: [string, 'null'] }
+        suggestedFormat: { oneOf: [{ $ref: '#/components/schemas/CommentaryFormat' }, { type: 'null' }] }
+        rank: { type: [integer, 'null'] }
+        thumbnailUrl: { type: [string, 'null'], format: uri }
+        clipId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
+
+    CropKeyframe:
+      type: object
+      required: [tMs, x, y, scale]
+      properties:
+        tMs: { type: integer, description: Klip başlangıcına göre. }
+        x: { type: number, minimum: 0, maximum: 1, description: Kırpma merkezinin kaynak karedeki yatay konumu. }
+        y: { type: number, minimum: 0, maximum: 1 }
+        scale: { type: number, minimum: 1, maximum: 4 }
+
+    SubtitleWord:
+      type: object
+      required: [startMs, endMs, text]
+      properties:
+        startMs: { type: integer }
+        endMs: { type: integer }
+        text: { type: string }
+        emphasis: { type: boolean, default: false }
+
+    EditSpec:
+      type: object
+      properties:
+        crop:
+          type: object
+          properties:
+            mode: { type: string, enum: [AUTO_FACE, MANUAL, CENTER, FIT_BLUR], default: AUTO_FACE }
+            keyframes:
+              type: array
+              items: { $ref: '#/components/schemas/CropKeyframe' }
+        subtitles:
+          type: object
+          properties:
+            style: { $ref: '#/components/schemas/SubtitleSettings' }
+            words:
+              type: array
+              description: Kullanıcının düzelttiği kelimeler; verilmezse transkript kullanılır.
+              items: { $ref: '#/components/schemas/SubtitleWord' }
+        hook:
+          type: object
+          properties:
+            text: { type: string, maxLength: 80 }
+            durationMs: { type: integer, minimum: 500, maximum: 4000, default: 2000 }
+        effects:
+          type: array
+          items:
+            type: object
+            required: [type, atMs]
+            properties:
+              type: { type: string, enum: [ZOOM_IN, ZOOM_OUT, SHAKE, FLASH, CUT_TRANSITION] }
+              atMs: { type: integer }
+              durationMs: { type: integer }
+              intensity: { type: number, minimum: 0, maximum: 1 }
+        audio: { $ref: '#/components/schemas/AudioSettings' }
+        brand: { $ref: '#/components/schemas/BrandSettings' }
+
+    ClipPatch:
+      type: object
+      properties:
+        startMs: { type: integer, minimum: 0 }
+        endMs: { type: integer, minimum: 0 }
+        commentaryFormat: { $ref: '#/components/schemas/CommentaryFormat' }
+        commentaryScript: { type: string, maxLength: 4000 }
+        editSpec: { $ref: '#/components/schemas/EditSpec' }
+        titles:
+          type: array
+          minItems: 1
+          maxItems: 3
+          items: { type: string, maxLength: 100 }
+        selectedTitle: { type: integer, minimum: 0, maximum: 2 }
+        description: { type: string, maxLength: 5000 }
+        tags:
+          type: array
+          maxItems: 40
+          items: { type: string, maxLength: 50 }
+        hashtags:
+          type: array
+          maxItems: 15
+          items: { type: string, pattern: '^#\S{1,49}$' }
+
+    Clip:
+      type: object
+      required: [id, projectId, channelId, status, startMs, endMs, score, title, qcStatus, version, updatedAt]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        projectId: { $ref: '#/components/schemas/Id' }
+        channelId: { $ref: '#/components/schemas/Id' }
+        status: { $ref: '#/components/schemas/ClipStatus' }
+        startMs: { type: integer }
+        endMs: { type: integer }
+        durationMs: { type: [integer, 'null'] }
+        score: { type: [integer, 'null'] }
+        title: { type: string }
+        thumbnailUrl: { type: [string, 'null'], format: uri }
+        qcStatus: { $ref: '#/components/schemas/QcStatus' }
+        renderProgress: { type: [integer, 'null'], description: EDITING durumunda 0-100. }
+        scheduledAt: { type: [string, 'null'], format: date-time }
+        publishedAt: { type: [string, 'null'], format: date-time }
+        youtubeVideoId: { type: [string, 'null'] }
+        outputStale: { type: boolean, description: Son üretimden sonra görüntüyü etkileyen düzenleme yapıldı. }
+        error: { oneOf: [{ $ref: '#/components/schemas/JobError' }, { type: 'null' }] }
+        version: { type: integer }
+        updatedAt: { type: string, format: date-time }
+
+    QcCheck:
+      type: object
+      required: [name, passed]
+      properties:
+        name: { type: string, enum: [DURATION, RESOLUTION, LOUDNESS, SUBTITLE_OVERFLOW, BLACK_FRAMES, AUDIO_SYNC] }
+        passed: { type: boolean }
+        measured: { type: string }
+        expected: { type: string }
+        autoFixed: { type: boolean }
+
+    ClipDetail:
+      allOf:
+        - $ref: '#/components/schemas/Clip'
+        - type: object
+          required: [aspectRatio, resolution, commentaryFormat, editSpec, titles, selectedTitle, tags, hashtags]
+          properties:
+            aspectRatio: { $ref: '#/components/schemas/AspectRatio' }
+            resolution: { $ref: '#/components/schemas/Resolution' }
+            watermark: { type: boolean }
+            commentaryFormat: { $ref: '#/components/schemas/CommentaryFormat' }
+            commentaryScript: { type: [string, 'null'] }
+            editSpec: { $ref: '#/components/schemas/EditSpec' }
+            titles:
+              type: array
+              items: { type: string }
+            selectedTitle: { type: integer }
+            description: { type: [string, 'null'] }
+            tags:
+              type: array
+              items: { type: string }
+            hashtags:
+              type: array
+              items: { type: string }
+            candidate: { $ref: '#/components/schemas/Candidate' }
+            qcChecks:
+              type: array
+              items: { $ref: '#/components/schemas/QcCheck' }
+            publish:
+              type: [object, 'null']
+              required: [status, scheduledAt, attempt]
+              properties:
+                status: { $ref: '#/components/schemas/PublishStatus' }
+                scheduledAt: { type: string, format: date-time }
+                privacy: { $ref: '#/components/schemas/PrivacyStatus' }
+                attempt: { type: integer }
+                nextRetryAt: { type: [string, 'null'], format: date-time }
+                uploadProgress: { type: [integer, 'null'] }
+
+    ScheduleInput:
+      type: object
+      properties:
+        scheduledAt: { type: string, format: date-time, description: Verilmezse bir sonraki boş yuva. }
+        privacy: { $ref: '#/components/schemas/PrivacyStatus' }
+        acknowledgeQc: { type: boolean, default: false }
+
+    Playback:
+      type: object
+      required: [url, expiresAt]
+      properties:
+        url: { type: string, format: uri }
+        previewUrl: { type: [string, 'null'], format: uri }
+        thumbnailUrl: { type: [string, 'null'], format: uri }
+        startMs: { type: [integer, 'null'], description: Aday önizlemesinde proxy içindeki başlangıç. }
+        endMs: { type: [integer, 'null'] }
+        expiresAt: { type: string, format: date-time }
+
+    Dashboard:
+      type: object
+      required: [today, queue, upcoming, credits]
+      properties:
+        today:
+          type: object
+          required: [published, scheduled, views24h, needsApproval]
+          properties:
+            published: { type: integer }
+            scheduled: { type: integer }
+            views24h: { type: integer }
+            needsApproval: { type: integer }
+        queue:
+          type: object
+          required: [activeProjects, renderingClips]
+          properties:
+            activeProjects:
+              type: array
+              items: { $ref: '#/components/schemas/Project' }
+            renderingClips:
+              type: array
+              items: { $ref: '#/components/schemas/Clip' }
+        upcoming:
+          type: array
+          description: Sıradaki 5 planlı yayın.
+          items: { $ref: '#/components/schemas/Clip' }
+        credits:
+          type: object
+          required: [remaining, granted, clipsUsed, clipsLimit]
+          properties:
+            remaining: { type: integer }
+            granted: { type: integer }
+            clipsUsed: { type: integer }
+            clipsLimit: { type: [integer, 'null'], description: null = sınırsız. }
+
+    ClipStatsWindow:
+      type: object
+      required: [window, views, likes, comments, fetchedAt]
+      properties:
+        window: { type: string, enum: [H24, D7] }
+        views: { type: integer }
+        likes: { type: integer }
+        comments: { type: integer }
+        shares: { type: integer }
+        avgViewDurationSec: { type: [number, 'null'] }
+        avgViewPercentage: { type: [number, 'null'] }
+        subscribersGained: { type: integer }
+        fetchedAt: { type: string, format: date-time }
+
+    ChannelStats:
+      type: object
+      required: [range, totals, series, topClips]
+      properties:
+        range: { type: string }
+        totals:
+          type: object
+          required: [clipsPublished, views, likes, comments, avgScore]
+          properties:
+            clipsPublished: { type: integer }
+            views: { type: integer }
+            likes: { type: integer }
+            comments: { type: integer }
+            subscribersGained: { type: integer }
+            avgViewPercentage: { type: [number, 'null'] }
+            avgScore: { type: [number, 'null'] }
+        series:
+          type: array
+          items:
+            type: object
+            required: [date, views, clipsPublished]
+            properties:
+              date: { type: string, format: date }
+              views: { type: integer }
+              clipsPublished: { type: integer }
+        topClips:
+          type: array
+          items: { $ref: '#/components/schemas/Clip' }
+        insights:
+          type: object
+          description: Öğrenme aşamasının çıkarımları.
+          properties:
+            sampleSize: { type: integer }
+            topFeatures: { type: array, items: { type: string } }
+            bestDurationSec: { type: [integer, 'null'] }
+            scoreViewCorrelation: { type: [number, 'null'] }
+
+    Entitlements:
+      type: object
+      required: [monthlyClips, monthlyCredits, maxResolution, maxChannels, watermark, teamAccess, priority]
+      properties:
+        monthlyClips: { type: [integer, 'null'], description: null = sınırsız. }
+        monthlyCredits: { type: integer }
+        maxResolution: { $ref: '#/components/schemas/Resolution' }
+        maxChannels: { type: integer }
+        watermark: { type: boolean }
+        teamAccess: { type: boolean }
+        priority: { type: integer, description: Kuyruk önceliği (küçük = önce). }
+
+    Subscription:
+      type: object
+      required: [plan, status, periodStart, periodEnd, entitlements, usage]
+      properties:
+        plan: { $ref: '#/components/schemas/Plan' }
+        status: { type: string, enum: [ACTIVE, TRIALING, GRACE_PERIOD, PAST_DUE, CANCELED, EXPIRED] }
+        store: { type: [string, 'null'], enum: [APP_STORE, PLAY_STORE, PROMOTIONAL, null] }
+        willRenew: { type: boolean }
+        periodStart: { type: string, format: date-time }
+        periodEnd: { type: string, format: date-time }
+        entitlements: { $ref: '#/components/schemas/Entitlements' }
+        usage:
+          type: object
+          required: [creditsUsed, creditsRemaining, clipsUsed, channelsUsed]
+          properties:
+            creditsUsed: { type: integer }
+            creditsRemaining: { type: integer }
+            clipsUsed: { type: integer }
+            channelsUsed: { type: integer }
+
+    UsageEntry:
+      type: object
+      required: [id, kind, credits, createdAt]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        kind: { type: string, enum: [CREDIT_GRANT, MINUTES_PROCESSED, CLIP_RENDERED, REFUND, ADJUSTMENT] }
+        credits: { type: integer }
+        minutes: { type: [number, 'null'] }
+        projectId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
+        projectTitle: { type: [string, 'null'] }
+        createdAt: { type: string, format: date-time }
+
+    Notification:
+      type: object
+      required: [id, type, params, createdAt]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        type:
+          type: string
+          enum: [ANALYSIS_DONE, CLIP_READY, CLIP_NEEDS_APPROVAL, CLIP_PUBLISHED, PUBLISH_FAILED, QC_FLAGGED, QUOTA_LOW, CREDITS_LOW, CHANNEL_REAUTH, SUBSCRIPTION_CHANGED, TEAM_INVITE, DATA_EXPORT_READY]
+        params: { type: object, additionalProperties: true, description: i18n metni için değişkenler. }
+        target:
+          type: [object, 'null']
+          properties:
+            screen: { type: string, enum: [PROJECT, CLIP, CALENDAR, CHANNEL, SUBSCRIPTION, SETTINGS] }
+            id: { type: [string, 'null'] }
+        readAt: { type: [string, 'null'], format: date-time }
+        createdAt: { type: string, format: date-time }

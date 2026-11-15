@@ -1,0 +1,951 @@
+// KlipAI — PostgreSQL şeması (Prisma 7)
+// Yol: klipai/apps/api/prisma/schema.prisma
+//
+// Kurallar:
+//  - Postgres'e yalnızca NestJS API yazar (tek yazar). Python worker'lar S3'e
+//    çıktı bırakır ve sonucu kuyruk üzerinden döndürür.
+//  - Tüm zamanlar UTC (timestamptz). Süreler milisaniye (Int).
+//  - Büyük ikili/JSON çıktılar (kelime zaman damgaları, yüz izleri) S3'te,
+//    tabloda yalnızca anahtarı tutulur.
+//  - Para: Decimal(12,6) USD. Kredi: tam sayı (1 kredi = işlenen 1 kaynak dakikası).
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ───────────────────────────── Enum'lar ─────────────────────────────
+
+enum Locale {
+  TR
+  EN
+}
+
+enum ThemePreference {
+  SYSTEM
+  LIGHT
+  DARK
+}
+
+enum ChannelStatus {
+  ACTIVE
+  REAUTH_REQUIRED // refresh token geçersiz; kullanıcı yeniden bağlamalı
+  DISCONNECTED
+}
+
+enum MemberRole {
+  OWNER
+  EDITOR
+  VIEWER
+}
+
+enum AutomationMode {
+  FULL_AUTO // puan eşiğini geçen klip onaysız planlanır
+  APPROVAL // klip READY'de bekler, kullanıcı onaylar
+  DRAFT_ONLY // hiçbir şey planlanmaz
+}
+
+enum AspectRatio {
+  PORTRAIT_9_16
+  SQUARE_1_1
+  LANDSCAPE_16_9
+}
+
+enum Resolution {
+  HD_720
+  FHD_1080
+  UHD_4K
+}
+
+enum CommentaryFormat {
+  NONE
+  REACTION
+  ANALYSIS
+  RANKING
+}
+
+enum TemplateKind {
+  SUBTITLE
+  COMMENTARY
+  BRAND
+  PROFILE // tam ayar profili
+}
+
+enum ProjectStatus {
+  DRAFT // sihirbaz tamamlanmadı / kaynak bekleniyor
+  INGESTING
+  ANALYZING
+  GENERATING_CANDIDATES
+  SCORING
+  AWAITING_SELECTION // adaylar hazır, kullanıcı seçimi bekleniyor (APPROVAL/DRAFT_ONLY)
+  PRODUCING // seçilen klipler kurgu hattında
+  COMPLETED
+  FAILED
+  CANCELED
+}
+
+enum RightsBasis {
+  OWN_CONTENT
+  LICENSED
+  PUBLIC_DOMAIN
+  PERMITTED
+}
+
+enum IngestType {
+  UPLOAD
+  LINK
+}
+
+enum SourceStatus {
+  PENDING
+  UPLOADING
+  UPLOADED
+  FETCHING // LINK: sunucu indiriyor
+  PROBING // ffprobe + proxy üretimi
+  READY
+  FAILED
+}
+
+enum PipelineStage {
+  INGEST
+  ANALYZE
+  CANDIDATES
+  SCORE
+  EDIT
+  ORIGINALIZE
+  METADATA
+  QC
+  PUBLISH
+  LEARN
+}
+
+enum JobStatus {
+  QUEUED
+  ACTIVE
+  SUCCEEDED
+  FAILED
+  CANCELED
+}
+
+enum CandidateStatus {
+  PROPOSED
+  SCORED
+  SELECTED
+  REJECTED
+}
+
+enum ClipStatus {
+  CANDIDATE // aday seçildi, kurgu başlamadı
+  EDITING // kurgu / özgünleştirme / meta veri / QC sürüyor
+  READY // çıktı hazır (APPROVAL modunda onay bekler)
+  SCHEDULED // PublishJob planlandı
+  PUBLISHING // YouTube'a yükleniyor
+  PUBLISHED
+  FAILED
+  ARCHIVED
+}
+
+enum QcStatus {
+  PENDING
+  PASSED
+  AUTO_FIXED
+  FLAGGED
+}
+
+enum RenderKind {
+  EDIT
+  ORIGINALIZE
+  METADATA
+  QC
+}
+
+enum PublishStatus {
+  SCHEDULED
+  QUEUED
+  UPLOADING
+  PROCESSING // YouTube tarafında işleniyor
+  PUBLISHED
+  FAILED
+  CANCELED
+}
+
+enum PrivacyStatus {
+  PUBLIC
+  UNLISTED
+  PRIVATE
+}
+
+enum StatsWindow {
+  H24
+  D7
+}
+
+enum Plan {
+  FREE
+  PRO
+  AGENCY
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  TRIALING
+  GRACE_PERIOD
+  PAST_DUE
+  CANCELED // dönem sonuna kadar erişim sürer
+  EXPIRED
+}
+
+enum Store {
+  APP_STORE
+  PLAY_STORE
+  PROMOTIONAL
+}
+
+enum UsageKind {
+  CREDIT_GRANT // dönem başı yükleme (+)
+  MINUTES_PROCESSED // analiz edilen kaynak dakikası (−)
+  CLIP_RENDERED // aylık klip sayacı
+  REFUND // başarısız iş iadesi (+)
+  ADJUSTMENT
+}
+
+enum NotificationType {
+  ANALYSIS_DONE
+  CLIP_READY
+  CLIP_NEEDS_APPROVAL
+  CLIP_PUBLISHED
+  PUBLISH_FAILED
+  QC_FLAGGED
+  QUOTA_LOW
+  CREDITS_LOW
+  CHANNEL_REAUTH
+  SUBSCRIPTION_CHANGED
+  TEAM_INVITE
+  DATA_EXPORT_READY
+}
+
+enum DataRequestKind {
+  EXPORT
+  DELETE
+}
+
+enum DataRequestStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  CANCELED
+}
+
+// ───────────────────────────── Kimlik ─────────────────────────────
+
+model User {
+  id                  String          @id @default(uuid(7)) @db.Uuid
+  email               String          @unique @db.Citext
+  passwordHash        String? // argon2id; yalnızca Google ile girişte null
+  googleSub           String?         @unique
+  displayName         String
+  avatarUrl           String?
+  locale              Locale          @default(TR)
+  theme               ThemePreference @default(SYSTEM)
+  timezone            String          @default("Europe/Istanbul") // IANA
+  emailVerifiedAt     DateTime?       @db.Timestamptz(3)
+  // KVKK/GDPR: silme talebi sonrası 30 gün bekleme, ardından kalıcı silme
+  deletionScheduledAt DateTime?       @db.Timestamptz(3)
+  createdAt           DateTime        @default(now()) @db.Timestamptz(3)
+  updatedAt           DateTime        @updatedAt @db.Timestamptz(3)
+
+  refreshTokens      RefreshToken[]
+  devices            Device[]
+  ownedChannels      Channel[]
+  memberships        ChannelMember[]
+  projects           Project[]
+  rightsDeclarations RightsDeclaration[]
+  templates          Template[]
+  subscription       Subscription?
+  usageLogs          UsageLog[]
+  notifications      Notification[]
+  dataRequests       DataRequest[]
+  oneTimeTokens      OneTimeToken[]
+
+  @@map("users")
+}
+
+// Refresh token rotasyonu + yeniden kullanım tespiti: çalınan token kullanılırsa
+// aynı familyId'deki tüm token'lar iptal edilir.
+model RefreshToken {
+  id        String    @id @default(uuid(7)) @db.Uuid
+  userId    String    @db.Uuid
+  familyId  String    @db.Uuid
+  tokenHash String    @unique // sha256(token)
+  deviceId  String?   @db.Uuid
+  userAgent String?
+  ip        String?   @db.Inet
+  expiresAt DateTime  @db.Timestamptz(3)
+  rotatedAt DateTime? @db.Timestamptz(3)
+  revokedAt DateTime? @db.Timestamptz(3)
+  createdAt DateTime  @default(now()) @db.Timestamptz(3)
+
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  device Device? @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([familyId])
+  @@index([expiresAt])
+  @@map("refresh_tokens")
+}
+
+enum OneTimeTokenPurpose {
+  EMAIL_VERIFY
+  PASSWORD_RESET
+}
+
+model OneTimeToken {
+  id        String              @id @default(uuid(7)) @db.Uuid
+  userId    String              @db.Uuid
+  purpose   OneTimeTokenPurpose
+  tokenHash String              @unique
+  expiresAt DateTime            @db.Timestamptz(3)
+  usedAt    DateTime?           @db.Timestamptz(3)
+  createdAt DateTime            @default(now()) @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, purpose])
+  @@map("one_time_tokens")
+}
+
+enum DevicePlatform {
+  IOS
+  ANDROID
+}
+
+// Push bildirimi hedefi (Expo push token).
+model Device {
+  id         String         @id @default(uuid(7)) @db.Uuid
+  userId     String         @db.Uuid
+  platform   DevicePlatform
+  pushToken  String         @unique
+  appVersion String?
+  locale     Locale         @default(TR)
+  lastSeenAt DateTime       @default(now()) @db.Timestamptz(3)
+  createdAt  DateTime       @default(now()) @db.Timestamptz(3)
+
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  refreshTokens RefreshToken[]
+
+  @@index([userId])
+  @@map("devices")
+}
+
+// ───────────────────────────── Kanal ve ekip ─────────────────────────────
+
+model Channel {
+  id               String        @id @default(uuid(7)) @db.Uuid
+  ownerId          String        @db.Uuid
+  youtubeChannelId String        @unique
+  title            String
+  handle           String?
+  thumbnailUrl     String?
+  status           ChannelStatus @default(ACTIVE)
+  // Kanal bazlı günlük yükleme kotası takibi (Pasifik gece yarısı sıfırlanır)
+  quotaUnitsUsed   Int           @default(0)
+  quotaResetAt     DateTime      @db.Timestamptz(3)
+  createdAt        DateTime      @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime      @updatedAt @db.Timestamptz(3)
+
+  owner       User               @relation(fields: [ownerId], references: [id], onDelete: Restrict)
+  credential  ChannelCredential?
+  settings    Settings?
+  insight     ChannelInsight?
+  members     ChannelMember[]
+  invites     ChannelInvite[]
+  projects    Project[]
+  clips       Clip[]
+  publishJobs PublishJob[]
+  templates   Template[]
+  usageLogs   UsageLog[]
+
+  @@index([ownerId])
+  @@map("channels")
+}
+
+// OAuth token'ları ayrı tabloda: varsayılan sorgularla asla seçilmez.
+// AES-256-GCM zarf şifreleme; keyVersion ile anahtar rotasyonu.
+model ChannelCredential {
+  channelId       String   @id @db.Uuid
+  accessTokenEnc  Bytes
+  refreshTokenEnc Bytes
+  keyVersion      Int      @default(1)
+  scopes          String[]
+  accessExpiresAt DateTime @db.Timestamptz(3)
+  updatedAt       DateTime @updatedAt @db.Timestamptz(3)
+
+  channel Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  @@map("channel_credentials")
+}
+
+model ChannelMember {
+  channelId String     @db.Uuid
+  userId    String     @db.Uuid
+  role      MemberRole
+  createdAt DateTime   @default(now()) @db.Timestamptz(3)
+
+  channel Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([channelId, userId])
+  @@index([userId])
+  @@map("channel_members")
+}
+
+model ChannelInvite {
+  id          String     @id @default(uuid(7)) @db.Uuid
+  channelId   String     @db.Uuid
+  email       String     @db.Citext
+  role        MemberRole
+  tokenHash   String     @unique
+  invitedById String     @db.Uuid
+  expiresAt   DateTime   @db.Timestamptz(3)
+  acceptedAt  DateTime?  @db.Timestamptz(3)
+  createdAt   DateTime   @default(now()) @db.Timestamptz(3)
+
+  channel Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  @@unique([channelId, email])
+  @@map("channel_invites")
+}
+
+// Kanal profili. Sorgulanan/kısıt uygulanan alanlar kolon; sunum ayarları
+// JSON (şeması packages/shared içindeki zod tanımlarıyla doğrulanır).
+model Settings {
+  channelId String @id @db.Uuid
+
+  // Otomasyon
+  automationMode AutomationMode @default(APPROVAL)
+
+  // Plan
+  dailyClipCount Int           @default(3)
+  timezone       String        @default("Europe/Istanbul")
+  publishWindows Json          @default("[{\"start\":\"12:00\",\"end\":\"14:00\"},{\"start\":\"19:00\",\"end\":\"22:00\"}]")
+  useBestTime    Boolean       @default(true)
+  defaultPrivacy PrivacyStatus @default(PUBLIC)
+
+  // Kesit
+  minDurationSec   Int @default(20)
+  maxDurationSec   Int @default(60)
+  minScore         Int @default(70)
+  maxClipsPerVideo Int @default(8)
+
+  // Format
+  aspectRatio AspectRatio @default(PORTRAIT_9_16)
+  resolution  Resolution  @default(FHD_1080)
+
+  // JSON grupları: SubtitleSettings, CommentarySettings, AudioSettings,
+  // BrandSettings, MetadataSettings
+  subtitle   Json @default("{}")
+  commentary Json @default("{}")
+  audio      Json @default("{}")
+  brand      Json @default("{}")
+  metadata   Json @default("{}")
+
+  version   Int      @default(1) // iyimser kilit
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  channel Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  @@map("settings")
+}
+
+model Template {
+  id         String       @id @default(uuid(7)) @db.Uuid
+  kind       TemplateKind
+  name       String
+  isSystem   Boolean      @default(false) // yerleşik şablon; ownerId/channelId null
+  ownerId    String?      @db.Uuid
+  channelId  String?      @db.Uuid // null ise sahibin tüm kanallarında kullanılabilir
+  config     Json
+  previewKey String?
+  createdAt  DateTime     @default(now()) @db.Timestamptz(3)
+  updatedAt  DateTime     @updatedAt @db.Timestamptz(3)
+
+  owner   User?    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  channel Channel? @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  @@index([ownerId, kind])
+  @@index([channelId, kind])
+  @@index([isSystem, kind])
+  @@map("templates")
+}
+
+// ───────────────────────────── Proje ve kaynak ─────────────────────────────
+
+model Project {
+  id               String        @id @default(uuid(7)) @db.Uuid
+  channelId        String        @db.Uuid
+  createdById      String        @db.Uuid
+  title            String
+  status           ProjectStatus @default(DRAFT)
+  // Proje başlarken kanal ayarlarının donmuş kopyası: sonradan yapılan ayar
+  // değişikliği devam eden işi etkilemez, yeniden üretim deterministik olur.
+  settingsSnapshot Json
+  progress         Int           @default(0) // 0-100, tüm hat
+  errorCode        String?
+  errorMessage     String?
+  createdAt        DateTime      @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime      @updatedAt @db.Timestamptz(3)
+  completedAt      DateTime?     @db.Timestamptz(3)
+
+  channel           Channel            @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  createdBy         User               @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  rightsDeclaration RightsDeclaration?
+  sourceVideo       SourceVideo?
+  pipelineJobs      PipelineJob[]
+  candidates        ClipCandidate[]
+  clips             Clip[]
+  usageLogs         UsageLog[]
+
+  @@index([channelId, createdAt(sort: Desc)])
+  @@index([channelId, status])
+  @@index([createdById])
+  @@map("projects")
+}
+
+// Değiştirilemez kayıt (yalnızca INSERT). Proje silinse bile hukuki kanıt
+// olarak saklanır; bu yüzden projectId SetNull.
+model RightsDeclaration {
+  id                String      @id @default(uuid(7)) @db.Uuid
+  projectId         String?     @unique @db.Uuid
+  userId            String      @db.Uuid
+  basis             RightsBasis
+  note              String? // lisans no, izin veren kişi vb.
+  evidenceUrl       String?
+  evidenceKey       String? // yüklenen lisans/izin belgesi
+  termsVersion      String // kabul edilen beyan metninin sürümü
+  termsHash         String // sha256(beyan metni)
+  sourceFingerprint String? // kaynak dosya sha256
+  ip                String      @db.Inet
+  userAgent         String
+  acceptedAt        DateTime    @default(now()) @db.Timestamptz(3)
+
+  project Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  user    User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([userId, acceptedAt])
+  @@map("rights_declarations")
+}
+
+model SourceVideo {
+  id           String       @id @default(uuid(7)) @db.Uuid
+  projectId    String       @unique @db.Uuid
+  ingestType   IngestType
+  status       SourceStatus @default(PENDING)
+  sourceUrl    String? // LINK
+  originalName String?
+  mimeType     String?
+  sizeBytes    BigInt?
+  sha256       String?
+  // S3
+  storageKey   String? // orijinal
+  proxyKey     String? // 540p analiz proxy'si
+  audioKey     String? // 16 kHz mono wav
+  uploadId     String? // S3 multipart oturumu
+  partSize     Int?
+  // ffprobe
+  durationMs   Int?
+  width        Int?
+  height       Int?
+  fps          Float?
+  hasAudio     Boolean?
+  // Analiz çıktılarının S3 anahtarları: {scenes, audioEnergy, diarization, faces}
+  analysisKeys Json         @default("{}")
+  errorCode    String?
+  createdAt    DateTime     @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime     @updatedAt @db.Timestamptz(3)
+
+  project    Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  transcript Transcript?
+
+  @@index([status])
+  @@index([sha256])
+  @@map("source_videos")
+}
+
+model Transcript {
+  id            String   @id @default(uuid(7)) @db.Uuid
+  sourceVideoId String   @unique @db.Uuid
+  language      String // ISO 639-1, Whisper tespiti
+  model         String // ör. whisper-large-v3
+  wordsKey      String // kelime düzeyi zaman damgaları (S3, JSON.gz)
+  wordCount     Int
+  speakerCount  Int      @default(1)
+  createdAt     DateTime @default(now()) @db.Timestamptz(3)
+
+  sourceVideo SourceVideo         @relation(fields: [sourceVideoId], references: [id], onDelete: Cascade)
+  segments    TranscriptSegment[]
+
+  @@map("transcripts")
+}
+
+// Cümle düzeyi bölütler: aday üretimi ve editörde metin düzeltme için.
+model TranscriptSegment {
+  transcriptId String  @db.Uuid
+  index        Int
+  startMs      Int
+  endMs        Int
+  speaker      String?
+  text         String
+
+  transcript Transcript @relation(fields: [transcriptId], references: [id], onDelete: Cascade)
+
+  @@id([transcriptId, index])
+  @@index([transcriptId, startMs])
+  @@map("transcript_segments")
+}
+
+// Proje düzeyindeki hat aşamaları (1-4 ve 10). Her satır bir BullMQ işinin
+// kalıcı izdüşümüdür; yeniden deneme yeni satır değil attempt artışıdır.
+model PipelineJob {
+  id           String        @id @default(uuid(7)) @db.Uuid
+  projectId    String        @db.Uuid
+  stage        PipelineStage
+  status       JobStatus     @default(QUEUED)
+  queueJobId   String? // BullMQ job id
+  attempt      Int           @default(0)
+  progress     Int           @default(0)
+  result       Json?
+  errorCode    String?
+  errorMessage String?
+  costUsd      Decimal       @default(0) @db.Decimal(12, 6)
+  gpuSeconds   Float         @default(0)
+  queuedAt     DateTime      @default(now()) @db.Timestamptz(3)
+  startedAt    DateTime?     @db.Timestamptz(3)
+  finishedAt   DateTime?     @db.Timestamptz(3)
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, stage])
+  @@index([status, queuedAt])
+  @@map("pipeline_jobs")
+}
+
+// ───────────────────────────── Aday ve klip ─────────────────────────────
+
+model ClipCandidate {
+  id              String            @id @default(uuid(7)) @db.Uuid
+  projectId       String            @db.Uuid
+  startMs         Int
+  endMs           Int
+  text            String // adayın transkript metni
+  status          CandidateStatus   @default(PROPOSED)
+  // Yerel sinyaller (aday üretimi): {audioEnergy, sceneCuts, speakerTurns, faceRatio}
+  signals         Json              @default("{}")
+  // LLM puanı
+  score           Int? // 0-100 ağırlıklı toplam
+  // {hook, emotion, standalone, curiosity, shareability} her biri 0-100
+  breakdown       Json?
+  rationale       String?
+  hookText        String? // ilk 2 sn kanca yazısı önerisi
+  suggestedFormat CommentaryFormat?
+  promptVersion   String?
+  rank            Int?
+  createdAt       DateTime          @default(now()) @db.Timestamptz(3)
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  clip    Clip?
+
+  @@index([projectId, score(sort: Desc)])
+  @@index([projectId, status])
+  @@map("clip_candidates")
+}
+
+model Clip {
+  id          String     @id @default(uuid(7)) @db.Uuid
+  projectId   String     @db.Uuid
+  channelId   String     @db.Uuid // listeleme/takvim için denormalize
+  candidateId String     @unique @db.Uuid
+  status      ClipStatus @default(CANDIDATE)
+
+  // Kesit
+  startMs Int
+  endMs   Int
+
+  // Çıktı biçimi
+  aspectRatio      AspectRatio
+  resolution       Resolution
+  commentaryFormat CommentaryFormat @default(NONE)
+  watermark        Boolean          @default(false) // Ücretsiz plan
+
+  // Kurgu tarifi: {crop:{keyframes[]}, subtitles:{style, words[] düzeltmeleri},
+  // hook:{text,durationMs}, effects[], music:{trackId, level}, brand:{...}}
+  editSpec         Json
+  commentaryScript String? // LLM anlatım metni (kullanıcı düzenleyebilir)
+
+  // Meta veri
+  titles        String[] // 3 alternatif
+  selectedTitle Int      @default(0)
+  description   String?
+  tags          String[]
+  hashtags      String[]
+  categoryId    String? // YouTube kategori kimliği
+  language      String?
+
+  // Çıktılar (S3)
+  outputKey    String?
+  previewKey   String? // düşük bit hızlı önizleme
+  thumbnailKey String?
+  durationMs   Int?
+
+  // Kalite kontrol
+  qcStatus QcStatus @default(PENDING)
+  qcReport Json?
+
+  // Onay ve yayın
+  approvedById   String?   @db.Uuid
+  approvedAt     DateTime? @db.Timestamptz(3)
+  scheduledAt    DateTime? @db.Timestamptz(3)
+  publishedAt    DateTime? @db.Timestamptz(3)
+  youtubeVideoId String?   @unique
+
+  errorCode    String?
+  errorMessage String?
+  version      Int      @default(1) // iyimser kilit (If-Match)
+  createdAt    DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime @updatedAt @db.Timestamptz(3)
+
+  project     Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  channel     Channel       @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  candidate   ClipCandidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  renderJobs  RenderJob[]
+  publishJobs PublishJob[]
+  stats       ClipStats[]
+  usageLogs   UsageLog[]
+
+  @@index([projectId, status])
+  @@index([channelId, status, updatedAt(sort: Desc)])
+  @@index([channelId, scheduledAt])
+  @@index([channelId, publishedAt(sort: Desc)])
+  @@map("clips")
+}
+
+// Klip düzeyindeki hat aşamaları (5-8). Her render denemesi ayrı satır:
+// editSpec değişince specHash değişir, eski çıktı önbellekten kullanılabilir.
+model RenderJob {
+  id           String     @id @default(uuid(7)) @db.Uuid
+  clipId       String     @db.Uuid
+  kind         RenderKind
+  status       JobStatus  @default(QUEUED)
+  queueJobId   String?
+  specHash     String // sha256(editSpec + ayar anlık görüntüsü)
+  attempt      Int        @default(0)
+  progress     Int        @default(0)
+  workerId     String?
+  outputKey    String?
+  result       Json?
+  errorCode    String?
+  errorMessage String?
+  gpuSeconds   Float      @default(0)
+  costUsd      Decimal    @default(0) @db.Decimal(12, 6)
+  queuedAt     DateTime   @default(now()) @db.Timestamptz(3)
+  startedAt    DateTime?  @db.Timestamptz(3)
+  finishedAt   DateTime?  @db.Timestamptz(3)
+
+  clip Clip @relation(fields: [clipId], references: [id], onDelete: Cascade)
+
+  @@index([clipId, queuedAt(sort: Desc)])
+  @@index([status, queuedAt])
+  @@index([clipId, kind, specHash])
+  @@map("render_jobs")
+}
+
+model PublishJob {
+  id               String        @id @default(uuid(7)) @db.Uuid
+  clipId           String        @db.Uuid
+  channelId        String        @db.Uuid
+  status           PublishStatus @default(SCHEDULED)
+  privacy          PrivacyStatus @default(PUBLIC)
+  scheduledAt      DateTime      @db.Timestamptz(3)
+  queueJobId       String?
+  attempt          Int           @default(0)
+  maxAttempts      Int           @default(3)
+  nextRetryAt      DateTime?     @db.Timestamptz(3)
+  // Resumable upload oturumu (şifreli URL) ve ilerleme: kesintide kaldığı
+  // bayttan devam edilir.
+  uploadSessionEnc Bytes?
+  bytesUploaded    BigInt        @default(0)
+  bytesTotal       BigInt?
+  quotaUnits       Int           @default(0)
+  youtubeVideoId   String?
+  errorCode        String?
+  errorMessage     String?
+  createdById      String?       @db.Uuid
+  createdAt        DateTime      @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime      @updatedAt @db.Timestamptz(3)
+  startedAt        DateTime?     @db.Timestamptz(3)
+  finishedAt       DateTime?     @db.Timestamptz(3)
+
+  clip    Clip    @relation(fields: [clipId], references: [id], onDelete: Cascade)
+  channel Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  @@index([status, scheduledAt]) // zamanlayıcı taraması
+  @@index([channelId, scheduledAt]) // takvim
+  @@index([clipId, createdAt(sort: Desc)])
+  @@map("publish_jobs")
+}
+
+// ───────────────────────────── Öğrenme ─────────────────────────────
+
+model ClipStats {
+  clipId             String      @db.Uuid
+  window             StatsWindow
+  views              Int
+  likes              Int
+  comments           Int
+  shares             Int         @default(0)
+  avgViewDurationSec Float?
+  avgViewPercentage  Float?
+  subscribersGained  Int         @default(0)
+  fetchedAt          DateTime    @default(now()) @db.Timestamptz(3)
+
+  clip Clip @relation(fields: [clipId], references: [id], onDelete: Cascade)
+
+  @@id([clipId, window])
+  @@map("clip_stats")
+}
+
+// Kanal başına öğrenilmiş özet: puanlama ve meta veri promptlarına eklenir.
+model ChannelInsight {
+  channelId      String   @id @db.Uuid
+  sampleSize     Int      @default(0)
+  // {topFeatures[], weakFeatures[], bestHours[], bestDurationSec, toneNotes}
+  features       Json     @default("{}")
+  promptAddendum String   @default("")
+  computedAt     DateTime @default(now()) @db.Timestamptz(3)
+
+  channel Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  @@map("channel_insights")
+}
+
+// ───────────────────────────── Abonelik ve kullanım ─────────────────────────────
+
+model Subscription {
+  userId         String             @id @db.Uuid
+  plan           Plan               @default(FREE)
+  status         SubscriptionStatus @default(ACTIVE)
+  store          Store?
+  productId      String?
+  rcAppUserId    String             @unique // RevenueCat app_user_id (= userId)
+  periodStart    DateTime           @db.Timestamptz(3)
+  periodEnd      DateTime           @db.Timestamptz(3)
+  willRenew      Boolean            @default(false)
+  // Hızlı limit denetimi için dönem sayaçları; doğruluk kaynağı UsageLog.
+  creditsGranted Int                @default(0)
+  creditsUsed    Int                @default(0)
+  clipsUsed      Int                @default(0)
+  updatedAt      DateTime           @updatedAt @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([periodEnd])
+  @@map("subscriptions")
+}
+
+// Yalnızca eklenen defter. idempotencyKey aynı işin iki kez faturalanmasını önler.
+model UsageLog {
+  id             String    @id @default(uuid(7)) @db.Uuid
+  userId         String    @db.Uuid // faturalanan hesap (kanal sahibi)
+  channelId      String?   @db.Uuid
+  projectId      String?   @db.Uuid
+  clipId         String?   @db.Uuid
+  kind           UsageKind
+  credits        Int // + yükleme/iade, − tüketim
+  minutes        Decimal?  @db.Decimal(10, 3)
+  costUsd        Decimal   @default(0) @db.Decimal(12, 6) // altyapı maliyeti
+  periodKey      String // "2026-11"
+  idempotencyKey String    @unique
+  meta           Json      @default("{}")
+  createdAt      DateTime  @default(now()) @db.Timestamptz(3)
+
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  channel Channel? @relation(fields: [channelId], references: [id], onDelete: SetNull)
+  project Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  clip    Clip?    @relation(fields: [clipId], references: [id], onDelete: SetNull)
+
+  @@index([userId, periodKey, kind])
+  @@index([projectId])
+  @@index([createdAt])
+  @@map("usage_logs")
+}
+
+// ───────────────────────────── Bildirim, KVKK, denetim ─────────────────────────────
+
+model Notification {
+  id        String           @id @default(uuid(7)) @db.Uuid
+  userId    String           @db.Uuid
+  type      NotificationType
+  // Metin istemcide i18n anahtarı + params ile üretilir (TR/EN).
+  params    Json             @default("{}")
+  // Derin bağlantı hedefi: {screen, id}
+  target    Json?
+  readAt    DateTime?        @db.Timestamptz(3)
+  createdAt DateTime         @default(now()) @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([userId, readAt])
+  @@map("notifications")
+}
+
+model DataRequest {
+  id          String            @id @default(uuid(7)) @db.Uuid
+  userId      String            @db.Uuid
+  kind        DataRequestKind
+  status      DataRequestStatus @default(PENDING)
+  resultKey   String? // EXPORT: zip arşivi
+  expiresAt   DateTime?         @db.Timestamptz(3) // indirme bağlantısı
+  requestedAt DateTime          @default(now()) @db.Timestamptz(3)
+  completedAt DateTime?         @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, kind])
+  @@index([status])
+  @@map("data_requests")
+}
+
+// Webhook idempotensi (RevenueCat).
+model WebhookEvent {
+  id          String    @id @default(uuid(7)) @db.Uuid
+  provider    String
+  eventId     String
+  type        String
+  payload     Json
+  receivedAt  DateTime  @default(now()) @db.Timestamptz(3)
+  processedAt DateTime? @db.Timestamptz(3)
+
+  @@unique([provider, eventId])
+  @@map("webhook_events")
+}
+
+// Kullanıcı silinse de kalır (actorId FK değildir); kişisel veri içermez.
+model AuditLog {
+  id        String   @id @default(uuid(7)) @db.Uuid
+  actorId   String?  @db.Uuid
+  channelId String?  @db.Uuid
+  action    String // ör. "clip.approve", "channel.member.add"
+  entity    String
+  entityId  String?
+  meta      Json     @default("{}")
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([channelId, createdAt(sort: Desc)])
+  @@index([actorId, createdAt(sort: Desc)])
+  @@map("audit_logs")
+}
