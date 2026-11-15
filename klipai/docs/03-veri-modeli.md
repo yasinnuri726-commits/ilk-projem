@@ -191,6 +191,10 @@ Göçle eklenecek, Prisma şemasında ifade edilemeyenler (aşama 2):
 | Ekip erişimi | yok | yok | var |
 | Kuyruk önceliği | 10 | 5 | 1 |
 
+`OWNER_EMAILS` ortam değişkenindeki e-postalarla kayıtlı hesaplar (uygulama sahibi) bu tablonun
+dışındadır: abonelik gerekmez, klip ve kredi sınırsızdır, 4K açıktır, filigran yoktur. Kullanım yine
+deftere yazılır (maliyet takibi için) ama bakiye denetlenmez.
+
 Kredi miktarları ürün varsayımıdır (istenen "işlenen dakika bazlı" ölçüme göre seçildi) ve
 `packages/shared` içindeki `ENTITLEMENTS` tablosundan tek yerden değiştirilir.
 

@@ -10,8 +10,9 @@
 //  - Para: Decimal(12,6) USD. Kredi: tam sayı (1 kredi = işlenen 1 kaynak dakikası).
 
 generator client {
-  provider = "prisma-client"
-  output   = "../src/generated/prisma"
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "cjs"
 }
 
 datasource db {
@@ -556,6 +557,9 @@ model SourceVideo {
   audioKey     String? // 16 kHz mono wav
   uploadId     String? // S3 multipart oturumu
   partSize     Int?
+  thumbnailKey String?
+  // İstemcinin beyan ettiği süre (kredi ön denetimi); kesin değer ffprobe'dan gelir
+  declaredDurationMs Int?
   // ffprobe
   durationMs   Int?
   width        Int?

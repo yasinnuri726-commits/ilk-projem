@@ -2169,7 +2169,7 @@ components:
           type: object
           required: [remaining, granted, clipsUsed, clipsLimit]
           properties:
-            remaining: { type: integer }
+            remaining: { type: [integer, 'null'], description: null = sınırsız. }
             granted: { type: integer }
             clipsUsed: { type: integer }
             clipsLimit: { type: [integer, 'null'], description: null = sınırsız. }
@@ -2230,7 +2230,7 @@ components:
       required: [monthlyClips, monthlyCredits, maxResolution, maxChannels, watermark, teamAccess, priority]
       properties:
         monthlyClips: { type: [integer, 'null'], description: null = sınırsız. }
-        monthlyCredits: { type: integer }
+        monthlyCredits: { type: [integer, 'null'], description: null = sınırsız. }
         maxResolution: { $ref: '#/components/schemas/Resolution' }
         maxChannels: { type: integer }
         watermark: { type: boolean }
@@ -2253,7 +2253,7 @@ components:
           required: [creditsUsed, creditsRemaining, clipsUsed, channelsUsed]
           properties:
             creditsUsed: { type: integer }
-            creditsRemaining: { type: integer }
+            creditsRemaining: { type: [integer, 'null'], description: null = sınırsız. }
             clipsUsed: { type: integer }
             channelsUsed: { type: integer }
 

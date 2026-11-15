@@ -2,14 +2,18 @@
 
 Yol: `klipai/docs/api/websocket.md`
 
-Aktarım: Socket.IO v4 (NestJS Gateway + Redis adapter). Gerekçe: yeniden bağlanma,
+Aktarım: Socket.IO v4 (NestJS Gateway; örnekler arası dağıtım Redis pub/sub ile). Gerekçe: yeniden bağlanma,
 oda yönetimi ve çok örnekli yayın hazır gelir; ham WebSocket'te bunları yeniden yazmak gerekir.
 
 ## Bağlantı
 
 1. `POST /v1/realtime/ticket` → `{ ticket, url, expiresAt }` (30 sn, tek kullanımlık).
-2. `io(url, { path: '/v1/realtime', auth: { ticket }, transports: ['websocket'] })`
-3. Sunucu bileti doğrular, kullanıcıyı `user:{userId}` odasına alır.
+2. `io(url, { path: '/v1/ws', auth: { ticket }, transports: ['websocket'] })`
+3. Sunucu bileti doğrular, kullanıcıyı `user:{userId}` odasına alır. Geçersiz bilette bağlantı
+   `connect_error` (`UNAUTHORIZED`) ile reddedilir.
+
+Soket yolu (`/v1/ws`) bilet ucundan (`/v1/realtime/ticket`) bilerek ayrıdır: engine.io kendi
+yolunun altındaki tüm istekleri sahiplenir.
 
 Erişim token'ı süresi dolunca sunucu `auth:expired` yollar ve bağlantıyı kapatır;
 istemci yeni bilet alıp yeniden bağlanır.

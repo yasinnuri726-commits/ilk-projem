@@ -100,7 +100,7 @@ flowchart TB
 | 4 | Orkestrasyon API'de, `QueueEvents` ile; BullMQ Flow yerine açık durum makinesi | Aşamalar arasında kullanıcı kararı (aday seçimi, onay) bulunduğu için akış tek bir iş ağacına sığmaz. |
 | 5 | Proje başlarken ayarların anlık görüntüsü alınır | Devam eden iş sonradan değişen ayardan etkilenmez, sonuç yeniden üretilebilir olur. |
 | 6 | Büyük çıktılar (kelime zaman damgaları, yüz izleri) S3'te, tabloda yalnızca anahtar | 60 dakikalık videoda on binlerce satır yerine tek nesne; tablo küçük ve hızlı kalır. |
-| 7 | OAuth token'ları ayrı tabloda, AES-256-GCM zarf şifreleme, anahtar KMS'te | Sızan veritabanı yedeği tek başına kanal erişimi vermez; anahtar rotasyonu `keyVersion` ile yapılır. |
+| 7 | OAuth token'ları ayrı tabloda, AES-256-GCM ile şifreli, sürümlü anahtarlık | Sızan veritabanı yedeği tek başına kanal erişimi vermez; anahtar rotasyonu `keyVersion` ile yapılır. |
 | 8 | Refresh token rotasyonu + aile bazlı yeniden kullanım tespiti | Çalınan token ilk kullanımda fark edilir ve tüm oturum zinciri kapanır. |
 | 9 | REST doğruluk kaynağı, WebSocket yalnızca tazeleme sinyali | Bağlantı kopsa bile durum tutarsızlığı oluşmaz. |
 | 10 | Kredi defteri yalnızca eklenir, `idempotencyKey` tekildir | Yeniden denenen iş iki kez faturalanmaz, her kredi hareketi denetlenebilir. |
@@ -108,7 +108,9 @@ flowchart TB
 | 12 | LLM çağrıları sağlayıcıdan bağımsız arayüz arkasında, yapılandırılmış JSON çıktı + şema doğrulama | Model değişimi kod değişikliği gerektirmez, bozuk çıktı kuyruğa girmeden yakalanır. |
 | 13 | Bağlantıdan alım yalnızca doğrudan medya adresleri | Video platformlarından sayfa adresiyle indirme o platformların kullanım koşullarını ihlal eder ve mağaza reddine yol açar. |
 | 14 | Hata biçimi RFC 9457, kararlı `code` alanı | İstemci metne değil koda göre davranır, metinler TR/EN yerelleştirilir. |
-| 15 | UUIDv7 birincil anahtar | Zamana göre sıralı olduğu için indeks parçalanmaz ve imleçli sayfalamada doğrudan kullanılır. |
+| 15 | Kaçan kuyruk olayları dakikalık bakım işiyle telafi edilir | Orkestratör kapalıyken biten iş kaybolmaz; hat hiçbir durumda yarıda takılı kalmaz. |
+| 16 | Uygulama sahibi `OWNER_EMAILS` ile tanımlanır | Tek kullanıcılı kurulumda abonelik gerekmeden tüm özellikler sınırsız açılır; abonelik altyapısı ileride başka kullanıcılar için hazır kalır. |
+| 17 | UUIDv7 birincil anahtar | Zamana göre sıralı olduğu için indeks parçalanmaz ve imleçli sayfalamada doğrudan kullanılır. |
 
 ## 4. Kuyruk topolojisi
 
@@ -132,7 +134,7 @@ Her aşama ayrı kuyruk ve ayrı iştir; bağımsız yeniden denenir. Öncelik p
 
 Ortak kurallar:
 
-- İş kimliği belirleyicidir (`{stage}:{projectId}` veya `{kind}:{clipId}:{specHash}`); aynı iş iki kez kuyruğa girmez.
+- İş kimliği belirleyicidir (`{stage}_{projectId}` veya `{kind}_{clipId}_{specHash}`); aynı iş iki kez kuyruğa girmez.
 - İş yükü yalnızca kimlik ve S3 anahtarı taşır; medya asla Redis'e yazılmaz.
 - Worker ilerlemeyi `job.updateProgress` ile bildirir; orkestratör bunu Postgres'e ve WebSocket'e yansıtır.
 - Kalıcı hatalar (bozuk dosya, desteklenmeyen kodek) `UnrecoverableError` ile yeniden denenmez.
@@ -214,9 +216,9 @@ değil, yalnızca seçilen kliplerde kurgu aşamasında yapılır.
 
 | Konu | Uygulama |
 |---|---|
-| Sırlar | Yalnızca backend ortam değişkenleri / gizli yönetici. Uygulamada yalnızca herkese açık anahtarlar (RevenueCat SDK anahtarı, Sentry DSN, Google istemci kimliği). |
+| Sırlar | Yalnızca backend ortam değişkenleri / gizli yönetici (OAuth şifreleme anahtarları dahil; sürümlü anahtarlık `TOKEN_ENC_KEYS`). Uygulamada yalnızca herkese açık anahtarlar (RevenueCat SDK anahtarı, Sentry DSN, Google istemci kimliği). |
 | OAuth | Yetkilendirme kodu + PKCE; kod takası sunucuda. Token'lar şifreli, yalnızca yayın/öğrenme worker'ı çözer. |
-| Kimlik | Argon2id parola özeti; 15 dk erişim JWT'si (EdDSA); 30 gün döner refresh token, sunucuda özeti saklanır. |
+| Kimlik | Argon2id parola özeti; 15 dk erişim JWT'si (HS256; token'ı yalnızca API doğruladığı için simetrik anahtar yeterlidir); 30 gün döner refresh token, sunucuda özeti saklanır. |
 | Yetki | Her kanal kaynağında üyelik + rol denetimi (`packages/shared` içindeki `PERMISSIONS`). |
 | Girdi | Tüm DTO'lar zod ile doğrulanır; bilinmeyen alanlar reddedilir; gövde sınırı 1 MB. |
 | Hız sınırı | Redis kayan pencere: IP başına (kimlik uçları 10/dk), kullanıcı başına (genel 300/dk, yükleme başlatma 20/saat). |

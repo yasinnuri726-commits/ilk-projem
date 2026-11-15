@@ -222,8 +222,8 @@ export type Plan = (typeof PLANS)[number];
 export interface Entitlements {
   /** null = sınırsız */
   monthlyClips: number | null;
-  /** 1 kredi = işlenen 1 kaynak dakikası */
-  monthlyCredits: number;
+  /** 1 kredi = işlenen 1 kaynak dakikası; null = sınırsız */
+  monthlyCredits: number | null;
   maxResolution: 'HD_720' | 'FHD_1080' | 'UHD_4K';
   maxChannels: number;
   watermark: boolean;
@@ -261,6 +261,28 @@ export const ENTITLEMENTS: Readonly<Record<Plan, Entitlements>> = {
     priority: 1,
   },
 };
+
+/**
+ * Uygulama sahibinin hesabı (OWNER_EMAILS ortam değişkeni): mağaza aboneliği
+ * olmadan tüm özellikler, sınırsız klip ve kredi.
+ */
+export const OWNER_ENTITLEMENTS: Entitlements = {
+  monthlyClips: null,
+  monthlyCredits: null,
+  maxResolution: 'UHD_4K',
+  maxChannels: 100,
+  watermark: false,
+  teamAccess: true,
+  priority: 1,
+};
+
+export const RESOLUTION_ORDER = ['HD_720', 'FHD_1080', 'UHD_4K'] as const;
+export function resolutionAllowed(
+  wanted: Entitlements['maxResolution'],
+  max: Entitlements['maxResolution'],
+): boolean {
+  return RESOLUTION_ORDER.indexOf(wanted) <= RESOLUTION_ORDER.indexOf(max);
+}
 
 // ───────────── Rol yetkileri ─────────────
 

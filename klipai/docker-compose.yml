@@ -1,0 +1,72 @@
+# Yol: klipai/docker-compose.yml
+# Geliştirme ortamı:  docker compose up -d postgres redis minio minio-init
+# API'yi konteynerde çalıştırmak için:  docker compose --profile app up --build
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: klipai
+      POSTGRES_PASSWORD: klipai
+      POSTGRES_DB: klipai
+    ports: ['5432:5432']
+    volumes: ['pgdata:/var/lib/postgresql/data']
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U klipai']
+      interval: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    # BullMQ için: bellek dolunca anahtar silinmemeli.
+    command: ['redis-server', '--maxmemory-policy', 'noeviction', '--appendonly', 'yes']
+    ports: ['6379:6379']
+    volumes: ['redisdata:/data']
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    command: ['server', '/data', '--console-address', ':9001']
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports: ['9000:9000', '9001:9001']
+    volumes: ['miniodata:/data']
+    healthcheck:
+      test: ['CMD', 'mc', 'ready', 'local']
+      interval: 5s
+      retries: 10
+
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio: { condition: service_healthy }
+    entrypoint: >
+      /bin/sh -c "mc alias set local http://minio:9000 minioadmin minioadmin &&
+      mc mb --ignore-existing local/klipai-dev"
+
+  api:
+    profiles: ['app']
+    build: { context: ., dockerfile: apps/api/Dockerfile }
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      minio-init: { condition: service_completed_successfully }
+    env_file: apps/api/.env
+    environment:
+      NODE_ENV: development
+      ROLE: all
+      DATABASE_URL: postgresql://klipai:klipai@postgres:5432/klipai
+      REDIS_URL: redis://redis:6379
+      S3_ENDPOINT: http://minio:9000
+      # Telefonun / emülatörün eriştiği adres; gerçek cihazda bilgisayarınızın yerel IP'sini yazın.
+      S3_PUBLIC_ENDPOINT: http://localhost:9000
+    ports: ['3000:3000']
+    command: ['sh', '-c', 'npx prisma migrate deploy && node dist/main.js']
+
+volumes:
+  pgdata:
+  redisdata:
+  miniodata:
