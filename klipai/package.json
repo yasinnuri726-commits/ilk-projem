@@ -1,0 +1,16 @@
+{
+  "name": "klipai",
+  "private": true,
+  "workspaces": ["packages/*", "apps/*"],
+  "scripts": {
+    "build:shared": "npm run build -w @klipai/shared",
+    "build:api": "npm run build:shared && npm run build -w @klipai/api",
+    "dev:api": "npm run build:shared && npm run start:dev -w @klipai/api",
+    "dev:mobile": "npm run start -w @klipai/mobile",
+    "test": "npm run build:shared && npm test -w @klipai/api && npm test -w @klipai/mobile",
+    "typecheck": "npm run build:shared && npm run typecheck -w @klipai/api && npm run typecheck -w @klipai/mobile",
+    "db:migrate": "npm run prisma:migrate -w @klipai/api",
+    "db:seed": "npm run prisma:seed -w @klipai/api"
+  },
+  "engines": { "node": ">=22" }
+}

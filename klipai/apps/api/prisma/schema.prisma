@@ -12,6 +12,11 @@ datasource db {
 
 // ───────────────────────── ENUM'LAR ─────────────────────────
 
+enum UserRole {
+  USER
+  DEVELOPER // kredi/klip sınırı yok, tüm özellikler açık (ücretsiz geliştirici hesabı)
+}
+
 enum AuthProvider {
   EMAIL
   GOOGLE
@@ -257,6 +262,8 @@ enum DataRequestStatus {
 model User {
   id              String    @id @default(cuid())
   email           String    @unique
+  username        String?   @unique // küçük harfe çevrilmiş; e-posta yerine girişte kullanılabilir
+  role            UserRole  @default(USER)
   emailVerifiedAt DateTime?
   passwordHash    String? // argon2id; yalnızca Google ile girişte null
   displayName     String
@@ -393,6 +400,7 @@ model ChannelMember {
   inviteEmail String? // kullanıcı henüz kayıtlı değilse
   role        ChannelRole
   invitedById String
+  inviteTokenHash String? @unique
   acceptedAt  DateTime?
   createdAt   DateTime    @default(now())
 
@@ -555,6 +563,7 @@ model SourceVideo {
   videoCodec      String?
   audioCodec      String?
   language        String?
+  thumbnailKey    String?
   // Analiz çıktıları (büyük diziler S3'te; burada anahtar tutulur)
   scenesKey       String? // sahne sınırları JSON
   audioEnergyKey  String? // RMS zarfı JSON
@@ -573,7 +582,9 @@ model SourceVideo {
 model RightsDeclaration {
   id            String      @id @default(cuid())
   userId        String?
-  sourceVideoId String      @unique
+  sourceVideoId String?     @unique
+  projectTitle  String
+  sourceRef     String // yükleme anahtarı veya kaynak URL (kaynak silinse de kalır)
   basis         RightsBasis
   details       String? // lisans no, izin veren, kaynak vb.
   evidenceKey   String? // yüklenen belge
@@ -584,7 +595,7 @@ model RightsDeclaration {
   declaredAt    DateTime    @default(now())
 
   user        User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
-  sourceVideo SourceVideo @relation(fields: [sourceVideoId], references: [id], onDelete: Restrict)
+  sourceVideo SourceVideo? @relation(fields: [sourceVideoId], references: [id], onDelete: SetNull)
 
   @@index([userId])
   @@index([declaredAt])
@@ -672,6 +683,7 @@ model Clip {
   // Çıktılar
   outputKey    String?
   thumbnailKey String?
+  frameKey     String? // kapak için ham kare
   durationSec  Float?
   sizeBytes    BigInt?
   loudnessLufs Float?

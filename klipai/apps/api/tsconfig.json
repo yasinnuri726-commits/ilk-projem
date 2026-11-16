@@ -1,0 +1,5 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": { "outDir": "dist", "experimentalDecorators": true, "emitDecoratorMetadata": true, "strictPropertyInitialization": false, "declaration": false, "types": ["node", "jest"] },
+  "include": ["src", "test", "prisma/seed.ts"]
+}
