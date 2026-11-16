@@ -1,0 +1,1557 @@
+openapi: 3.1.0
+info:
+  title: KlipAI API
+  version: 1.0.0
+  license: { name: Proprietary, identifier: LicenseRef-Proprietary }
+  description: |
+    Kurallar:
+    - Taban yol `/v1`. Kimlik: `Authorization: Bearer <accessToken>` (15 dk), refresh token 30 gün ve her kullanımda döner.
+    - Hatalar RFC 9457 `application/problem+json`; `code` alanı makine tarafından okunur (ör. `CREDITS_EXHAUSTED`).
+    - Listeler imleç sayfalamalıdır: `?cursor=&limit=` → `{ items, nextCursor }`.
+    - Yan etkili POST'larda `Idempotency-Key` başlığı desteklenir (24 saat).
+    - Güncellemelerde iyimser kilit: gövdede `version` gönderilir, uyuşmazsa `409 VERSION_CONFLICT`.
+    - Rate limit: kimlik uçları 10/dk/IP, diğerleri 120/dk/kullanıcı; `429` + `Retry-After`.
+servers:
+  - { url: https://api.klipai.app/v1, description: prod }
+  - { url: https://api.staging.klipai.app/v1, description: staging }
+  - { url: http://localhost:3000/v1, description: dev }
+security:
+  - bearer: []
+tags:
+  - { name: auth }
+  - { name: me }
+  - { name: channels }
+  - { name: uploads }
+  - { name: projects }
+  - { name: clips }
+  - { name: publish }
+  - { name: templates }
+  - { name: stats }
+  - { name: billing }
+  - { name: notifications }
+  - { name: internal }
+
+paths:
+  # ───────────── AUTH ─────────────
+  /auth/register:
+    post:
+      tags: [auth]
+      operationId: register
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password, displayName]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string, minLength: 8, maxLength: 128 }
+                displayName: { type: string, minLength: 1, maxLength: 80 }
+                locale: { $ref: '#/components/schemas/Locale' }
+                timezone: { type: string }
+      responses:
+        '201': { $ref: '#/components/responses/AuthSession' }
+        '409': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
+  /auth/login:
+    post:
+      tags: [auth]
+      operationId: login
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string }
+      responses:
+        '200': { $ref: '#/components/responses/AuthSession' }
+        '401': { $ref: '#/components/responses/Problem' }
+  /auth/google:
+    post:
+      tags: [auth]
+      operationId: loginWithGoogle
+      security: []
+      description: Mobil istemcinin Google'dan aldığı ID token sunucuda doğrulanır.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [idToken]
+              properties:
+                idToken: { type: string }
+      responses:
+        '200': { $ref: '#/components/responses/AuthSession' }
+        '401': { $ref: '#/components/responses/Problem' }
+  /auth/refresh:
+    post:
+      tags: [auth]
+      operationId: refreshSession
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refreshToken]
+              properties:
+                refreshToken: { type: string }
+      responses:
+        '200': { $ref: '#/components/responses/AuthSession' }
+        '401': { $ref: '#/components/responses/Problem' }
+  /auth/logout:
+    post:
+      tags: [auth]
+      operationId: logout
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refreshToken]
+              properties:
+                refreshToken: { type: string }
+      responses:
+        '204': { description: Oturum kapatıldı }
+        '401': { $ref: '#/components/responses/Problem' }
+  /auth/password/forgot:
+    post:
+      tags: [auth]
+      operationId: forgotPassword
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email: { type: string, format: email }
+      responses:
+        '204': { description: Hesap varsa e-posta gönderildi (varlık sızdırılmaz) }
+        '429': { $ref: '#/components/responses/Problem' }
+  /auth/password/reset:
+    post:
+      tags: [auth]
+      operationId: resetPassword
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, password]
+              properties:
+                token: { type: string }
+                password: { type: string, minLength: 8, maxLength: 128 }
+      responses:
+        '204': { description: 'Parola değişti, tüm oturumlar iptal edildi' }
+        '400': { $ref: '#/components/responses/Problem' }
+
+  # ───────────── ME ─────────────
+  /me:
+    get:
+      tags: [me]
+      operationId: getMe
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/User' } } } }
+        '401': { $ref: '#/components/responses/Problem' }
+    patch:
+      tags: [me]
+      operationId: updateMe
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                displayName: { type: string, maxLength: 80 }
+                locale: { $ref: '#/components/schemas/Locale' }
+                timezone: { type: string }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/User' } } } }
+        '422': { $ref: '#/components/responses/Problem' }
+    delete:
+      tags: [me]
+      operationId: deleteMe
+      description: KVKK/GDPR silme. Hesap hemen devre dışı kalır, 30 gün sonra kalıcı silinir.
+      responses:
+        '202': { description: Kabul edildi, content: { application/json: { schema: { $ref: '#/components/schemas/DataRequest' } } } }
+        '401': { $ref: '#/components/responses/Problem' }
+  /me/export:
+    post:
+      tags: [me]
+      operationId: requestExport
+      description: KVKK/GDPR dışa aktarma. Hazır olunca e-posta + bildirim ile imzalı URL gönderilir.
+      responses:
+        '202': { description: Kabul edildi, content: { application/json: { schema: { $ref: '#/components/schemas/DataRequest' } } } }
+        '429': { $ref: '#/components/responses/Problem' }
+  /me/devices:
+    post:
+      tags: [me]
+      operationId: registerDevice
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [platform, pushToken]
+              properties:
+                platform: { type: string, enum: [IOS, ANDROID] }
+                pushToken: { type: string }
+                locale: { $ref: '#/components/schemas/Locale' }
+                appVersion: { type: string }
+      responses:
+        '201': { description: Kaydedildi, content: { application/json: { schema: { $ref: '#/components/schemas/IdOnly' } } } }
+        '422': { $ref: '#/components/responses/Problem' }
+  /me/devices/{id}:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    delete:
+      tags: [me]
+      operationId: unregisterDevice
+      responses:
+        '204': { description: Silindi }
+        '404': { $ref: '#/components/responses/Problem' }
+
+  # ───────────── CHANNELS ─────────────
+  /channels:
+    get:
+      tags: [channels]
+      operationId: listChannels
+      responses:
+        '200':
+          description: Kullanıcının sahip/üye olduğu kanallar
+          content:
+            application/json:
+              schema: { type: object, required: [items], properties: { items: { type: array, items: { $ref: '#/components/schemas/Channel' } } } }
+        '401': { $ref: '#/components/responses/Problem' }
+  /channels/youtube/oauth/start:
+    post:
+      tags: [channels]
+      operationId: startYoutubeOAuth
+      description: PKCE + imzalı `state` içeren Google yetkilendirme URL'si döner; mobil uygulama sistem tarayıcısında açar.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [redirectUri]
+              properties:
+                redirectUri: { type: string, description: 'Derin bağlantı, ör. klipai://oauth/youtube' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { type: object, required: [authUrl, state], properties: { authUrl: { type: string, format: uri }, state: { type: string } } }
+        '403': { $ref: '#/components/responses/Problem' }
+  /channels/youtube/oauth/complete:
+    post:
+      tags: [channels]
+      operationId: completeYoutubeOAuth
+      description: Yetki kodu sunucuda token'a çevrilir, token'lar şifreli saklanır, kanal kaydı + varsayılan ayarlar oluşturulur.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code, state]
+              properties:
+                code: { type: string }
+                state: { type: string }
+      responses:
+        '201': { description: Kanal bağlandı, content: { application/json: { schema: { $ref: '#/components/schemas/Channel' } } } }
+        '400': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+  /channels/{id}:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    get:
+      tags: [channels]
+      operationId: getChannel
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Channel' } } } }
+        '404': { $ref: '#/components/responses/Problem' }
+    delete:
+      tags: [channels]
+      operationId: disconnectChannel
+      description: Yalnızca sahip. Google token'ı iptal edilir, planlı yayınlar iptal olur.
+      responses:
+        '204': { description: Bağlantı kesildi }
+        '403': { $ref: '#/components/responses/Problem' }
+  /channels/{id}/settings:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    get:
+      tags: [channels]
+      operationId: getChannelSettings
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Settings' } } } }
+        '404': { $ref: '#/components/responses/Problem' }
+    patch:
+      tags: [channels]
+      operationId: updateChannelSettings
+      description: Sahip veya editör. Kısmi güncelleme; plan sınırları (ör. 4K yalnızca Ajans) sunucuda uygulanır.
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/Settings' } } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Settings' } } } }
+        '403': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
+  /channels/{id}/quota:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    get:
+      tags: [channels]
+      operationId: getChannelQuota
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [used, limit, resetAt, remainingUploads]
+                properties:
+                  used: { type: integer }
+                  limit: { type: integer }
+                  resetAt: { type: string, format: date-time }
+                  remainingUploads: { type: integer }
+        '404': { $ref: '#/components/responses/Problem' }
+  /channels/{id}/best-times:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    get:
+      tags: [channels]
+      operationId: getBestTimes
+      description: Kanalın geçmiş performansından türetilen en iyi yayın saatleri (kanal saat diliminde).
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      required: [weekday, hour, score]
+                      properties:
+                        weekday: { type: integer, minimum: 0, maximum: 6 }
+                        hour: { type: integer, minimum: 0, maximum: 23 }
+                        score: { type: number }
+        '404': { $ref: '#/components/responses/Problem' }
+  /channels/{id}/members:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    get:
+      tags: [channels]
+      operationId: listMembers
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { type: object, required: [items], properties: { items: { type: array, items: { $ref: '#/components/schemas/Member' } } } }
+        '403': { $ref: '#/components/responses/Problem' }
+    post:
+      tags: [channels]
+      operationId: inviteMember
+      description: Yalnızca sahip; Ajans planı gerektirir.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, role]
+              properties:
+                email: { type: string, format: email }
+                role: { type: string, enum: [EDITOR, VIEWER] }
+      responses:
+        '201': { description: Davet gönderildi, content: { application/json: { schema: { $ref: '#/components/schemas/Member' } } } }
+        '402': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+  /channels/{id}/members/{memberId}:
+    parameters:
+      - { $ref: '#/components/parameters/Id' }
+      - { name: memberId, in: path, required: true, schema: { type: string } }
+    patch:
+      tags: [channels]
+      operationId: updateMember
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [role], properties: { role: { type: string, enum: [EDITOR, VIEWER] } } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Member' } } } }
+        '403': { $ref: '#/components/responses/Problem' }
+    delete:
+      tags: [channels]
+      operationId: removeMember
+      responses:
+        '204': { description: Çıkarıldı }
+        '403': { $ref: '#/components/responses/Problem' }
+  /invites/{token}/accept:
+    parameters: [{ name: token, in: path, required: true, schema: { type: string } }]
+    post:
+      tags: [channels]
+      operationId: acceptInvite
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Channel' } } } }
+        '404': { $ref: '#/components/responses/Problem' }
+
+  # ───────────── UPLOADS (S3 multipart, imzalı URL) ─────────────
+  /uploads:
+    post:
+      tags: [uploads]
+      operationId: initUpload
+      description: Çok parçalı yükleme başlatır. Azami 20 GB; izinli türler video/mp4, video/quicktime, video/x-matroska, video/webm, audio/mpeg, audio/wav.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [fileName, contentType, sizeBytes]
+              properties:
+                fileName: { type: string, maxLength: 255 }
+                contentType: { type: string }
+                sizeBytes: { type: integer, format: int64, minimum: 1 }
+      responses:
+        '201': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/UploadSession' } } } }
+        '413': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
+  /uploads/{id}:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    get:
+      tags: [uploads]
+      operationId: getUpload
+      description: Devam ettirme için tamamlanmış parça numaralarını döner.
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/UploadSession' } } } }
+        '404': { $ref: '#/components/responses/Problem' }
+    delete:
+      tags: [uploads]
+      operationId: abortUpload
+      responses:
+        '204': { description: İptal edildi }
+        '404': { $ref: '#/components/responses/Problem' }
+  /uploads/{id}/parts:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    post:
+      tags: [uploads]
+      operationId: signUploadParts
+      description: İstenen parça numaraları için 15 dk geçerli imzalı PUT URL'leri üretir (istek başına en çok 50).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [partNumbers]
+              properties:
+                partNumbers: { type: array, minItems: 1, maxItems: 50, items: { type: integer, minimum: 1, maximum: 10000 } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [parts]
+                properties:
+                  parts:
+                    type: array
+                    items:
+                      type: object
+                      required: [partNumber, url, expiresAt]
+                      properties:
+                        partNumber: { type: integer }
+                        url: { type: string, format: uri }
+                        expiresAt: { type: string, format: date-time }
+        '404': { $ref: '#/components/responses/Problem' }
+  /uploads/{id}/complete:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    post:
+      tags: [uploads]
+      operationId: completeUpload
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [parts]
+              properties:
+                parts:
+                  type: array
+                  items:
+                    type: object
+                    required: [partNumber, etag]
+                    properties:
+                      partNumber: { type: integer }
+                      etag: { type: string }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/UploadSession' } } } }
+        '409': { $ref: '#/components/responses/Problem' }
+
+  # ───────────── PROJECTS ─────────────
+  /projects:
+    get:
+      tags: [projects]
+      operationId: listProjects
+      parameters:
+        - { $ref: '#/components/parameters/Cursor' }
+        - { $ref: '#/components/parameters/Limit' }
+        - { name: channelId, in: query, schema: { type: string } }
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/ProjectStatus' } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/Project' } }
+                  nextCursor: { type: [string, 'null'] }
+        '401': { $ref: '#/components/responses/Problem' }
+    post:
+      tags: [projects]
+      operationId: createProject
+      description: |
+        Projeyi, kaynağı ve hak beyanını tek işlemde oluşturur. `autoStart=true` ise hat hemen başlar.
+        Hak beyanı zorunludur; IP ve user-agent ile değiştirilemez şekilde kaydedilir.
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [channelId, title, source, rights]
+              properties:
+                channelId: { type: string }
+                title: { type: string, minLength: 1, maxLength: 120 }
+                source:
+                  oneOf:
+                    - type: object
+                      required: [type, uploadId]
+                      properties:
+                        type: { type: string, const: UPLOAD }
+                        uploadId: { type: string }
+                    - type: object
+                      required: [type, url]
+                      properties:
+                        type: { type: string, const: LINK }
+                        url: { type: string, format: uri }
+                rights:
+                  type: object
+                  required: [basis, attestationVersion, accepted]
+                  properties:
+                    basis: { type: string, enum: [OWN_CONTENT, LICENSED, PUBLIC_DOMAIN, PERMITTED] }
+                    details: { type: string, maxLength: 1000 }
+                    evidenceUploadId: { type: string }
+                    attestationVersion: { type: string }
+                    accepted: { type: boolean, const: true }
+                settingsOverride: { $ref: '#/components/schemas/Settings' }
+                autoStart: { type: boolean, default: true }
+      responses:
+        '201': { description: Oluşturuldu, content: { application/json: { schema: { $ref: '#/components/schemas/Project' } } } }
+        '402': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
+  /projects/{id}:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    get:
+      tags: [projects]
+      operationId: getProject
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/ProjectDetail' } } } }
+        '404': { $ref: '#/components/responses/Problem' }
+    patch:
+      tags: [projects]
+      operationId: updateProject
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, properties: { title: { type: string, maxLength: 120 }, archived: { type: boolean } } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Project' } } } }
+        '404': { $ref: '#/components/responses/Problem' }
+    delete:
+      tags: [projects]
+      operationId: deleteProject
+      description: Proje, klipler ve depolama nesneleri silinir; hak beyanı saklanır.
+      responses:
+        '204': { description: Silindi }
+        '403': { $ref: '#/components/responses/Problem' }
+  /projects/{id}/start:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    post:
+      tags: [projects]
+      operationId: startProject
+      description: Krediyi rezerve eder ve INGEST işini kuyruğa atar.
+      responses:
+        '202': { description: Başladı, content: { application/json: { schema: { $ref: '#/components/schemas/Project' } } } }
+        '402': { $ref: '#/components/responses/Problem' }
+        '409': { $ref: '#/components/responses/Problem' }
+  /projects/{id}/cancel:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    post:
+      tags: [projects]
+      operationId: cancelProject
+      description: Çalışan işler iptal edilir, kullanılmayan kredi iade edilir.
+      responses:
+        '202': { description: İptal ediliyor, content: { application/json: { schema: { $ref: '#/components/schemas/Project' } } } }
+        '409': { $ref: '#/components/responses/Problem' }
+  /projects/{id}/retry:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    post:
+      tags: [projects]
+      operationId: retryProject
+      description: Başarısız aşamadan (veya verilen aşamadan) devam eder; önceki aşamaların çıktıları yeniden kullanılır.
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, properties: { stage: { $ref: '#/components/schemas/PipelineStage' } } }
+      responses:
+        '202': { description: Yeniden kuyruğa alındı, content: { application/json: { schema: { $ref: '#/components/schemas/Project' } } } }
+        '409': { $ref: '#/components/responses/Problem' }
+  /projects/{id}/transcript:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    get:
+      tags: [projects]
+      operationId: getTranscript
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Transcript' } } } }
+        '404': { $ref: '#/components/responses/Problem' }
+  /projects/{id}/candidates:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    get:
+      tags: [projects]
+      operationId: listCandidates
+      parameters:
+        - { name: minScore, in: query, schema: { type: integer, minimum: 0, maximum: 100 } }
+        - { name: status, in: query, schema: { type: string, enum: [PENDING_SCORE, SCORED, ACCEPTED, REJECTED, BELOW_THRESHOLD] } }
+      responses:
+        '200':
+          description: Puana göre azalan
+          content:
+            application/json:
+              schema: { type: object, required: [items], properties: { items: { type: array, items: { $ref: '#/components/schemas/Candidate' } } } }
+        '404': { $ref: '#/components/responses/Problem' }
+  /candidates/{id}/accept:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    post:
+      tags: [projects]
+      operationId: acceptCandidate
+      description: Adaydan klip oluşturur ve kurgu hattını (EDIT → COMMENTARY → METADATA → QC) başlatır. Aylık klip hakkından düşer.
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, properties: { startSec: { type: number }, endSec: { type: number } } }
+      responses:
+        '201': { description: Klip oluşturuldu, content: { application/json: { schema: { $ref: '#/components/schemas/Clip' } } } }
+        '402': { $ref: '#/components/responses/Problem' }
+        '409': { $ref: '#/components/responses/Problem' }
+  /candidates/{id}/reject:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    post:
+      tags: [projects]
+      operationId: rejectCandidate
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Candidate' } } } }
+        '404': { $ref: '#/components/responses/Problem' }
+
+  # ───────────── CLIPS ─────────────
+  /clips:
+    get:
+      tags: [clips]
+      operationId: listClips
+      parameters:
+        - { $ref: '#/components/parameters/Cursor' }
+        - { $ref: '#/components/parameters/Limit' }
+        - { name: channelId, in: query, schema: { type: string } }
+        - { name: projectId, in: query, schema: { type: string } }
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/ClipStatus' } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/Clip' } }
+                  nextCursor: { type: [string, 'null'] }
+        '401': { $ref: '#/components/responses/Problem' }
+  /clips/{id}:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    get:
+      tags: [clips]
+      operationId: getClip
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Clip' } } } }
+        '404': { $ref: '#/components/responses/Problem' }
+    patch:
+      tags: [clips]
+      operationId: updateClip
+      description: Editör kaydı. `version` zorunlu; çevrimdışı taslaklar bu uçla eşitlenir. Çıktıyı değiştirmez — bunun için `/render`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [version]
+              properties:
+                version: { type: integer }
+                startSec: { type: number }
+                endSec: { type: number }
+                editSpec: { $ref: '#/components/schemas/EditSpec' }
+                hookText: { type: string, maxLength: 80 }
+                commentaryScript: { type: string, maxLength: 2000 }
+                title: { type: string, maxLength: 100 }
+                description: { type: string, maxLength: 5000 }
+                tags: { type: array, maxItems: 30, items: { type: string } }
+                hashtags: { type: array, maxItems: 15, items: { type: string } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Clip' } } } }
+        '409': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
+    delete:
+      tags: [clips]
+      operationId: deleteClip
+      responses:
+        '204': { description: Silindi }
+        '403': { $ref: '#/components/responses/Problem' }
+  /clips/{id}/render:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    post:
+      tags: [clips]
+      operationId: renderClip
+      description: Geçerli editSpec ile yeniden kurgular (READY/FAILED → EDITING).
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      responses:
+        '202': { description: Kuyruğa alındı, content: { application/json: { schema: { $ref: '#/components/schemas/Clip' } } } }
+        '409': { $ref: '#/components/responses/Problem' }
+  /clips/{id}/regenerate:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    post:
+      tags: [clips]
+      operationId: regenerateClipPart
+      description: Yalnızca seçilen yapay zeka çıktısını yeniden üretir.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [part]
+              properties:
+                part: { type: string, enum: [COMMENTARY, METADATA, THUMBNAIL] }
+                instruction: { type: string, maxLength: 500 }
+      responses:
+        '202': { description: Kuyruğa alındı, content: { application/json: { schema: { $ref: '#/components/schemas/Clip' } } } }
+        '409': { $ref: '#/components/responses/Problem' }
+  /clips/{id}/schedule:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    post:
+      tags: [publish]
+      operationId: scheduleClip
+      description: |
+        READY klibi planlar. `scheduledAt` yoksa kanal planındaki sonraki boş dilim seçilir; `now=true` hemen yükler.
+        "Onaylı" modda bu çağrı aynı zamanda onaydır. İzleyici rolü çağıramaz.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                scheduledAt: { type: string, format: date-time }
+                now: { type: boolean }
+                privacy: { $ref: '#/components/schemas/YoutubePrivacy' }
+      responses:
+        '201': { description: Planlandı, content: { application/json: { schema: { $ref: '#/components/schemas/PublishJob' } } } }
+        '403': { $ref: '#/components/responses/Problem' }
+        '409': { $ref: '#/components/responses/Problem' }
+  /clips/{id}/download:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    get:
+      tags: [clips]
+      operationId: getClipDownloadUrl
+      responses:
+        '200':
+          description: 10 dk geçerli imzalı CDN URL'si
+          content:
+            application/json:
+              schema: { type: object, required: [url, expiresAt], properties: { url: { type: string, format: uri }, expiresAt: { type: string, format: date-time } } }
+        '409': { $ref: '#/components/responses/Problem' }
+
+  # ───────────── PUBLISH / TAKVİM ─────────────
+  /publish-jobs:
+    get:
+      tags: [publish]
+      operationId: listPublishJobs
+      description: Takvim görünümü; `from`–`to` aralığı en çok 62 gün.
+      parameters:
+        - { name: channelId, in: query, schema: { type: string } }
+        - { name: from, in: query, required: true, schema: { type: string, format: date-time } }
+        - { name: to, in: query, required: true, schema: { type: string, format: date-time } }
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/PublishStatus' } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { type: object, required: [items], properties: { items: { type: array, items: { $ref: '#/components/schemas/PublishJob' } } } }
+        '422': { $ref: '#/components/responses/Problem' }
+  /publish-jobs/{id}:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    patch:
+      tags: [publish]
+      operationId: reschedulePublishJob
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                scheduledAt: { type: string, format: date-time }
+                privacy: { $ref: '#/components/schemas/YoutubePrivacy' }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/PublishJob' } } } }
+        '409': { $ref: '#/components/responses/Problem' }
+    delete:
+      tags: [publish]
+      operationId: cancelPublishJob
+      description: Yükleme başlamadıysa iptal eder; klip READY durumuna döner.
+      responses:
+        '204': { description: İptal edildi }
+        '409': { $ref: '#/components/responses/Problem' }
+  /publish-jobs/{id}/retry:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    post:
+      tags: [publish]
+      operationId: retryPublishJob
+      responses:
+        '202': { description: Yeniden kuyruğa alındı, content: { application/json: { schema: { $ref: '#/components/schemas/PublishJob' } } } }
+        '409': { $ref: '#/components/responses/Problem' }
+
+  # ───────────── TEMPLATES ─────────────
+  /templates:
+    get:
+      tags: [templates]
+      operationId: listTemplates
+      parameters:
+        - { name: kind, in: query, schema: { $ref: '#/components/schemas/TemplateKind' } }
+        - { name: channelId, in: query, schema: { type: string } }
+      responses:
+        '200':
+          description: Sistem + kullanıcı şablonları
+          content:
+            application/json:
+              schema: { type: object, required: [items], properties: { items: { type: array, items: { $ref: '#/components/schemas/Template' } } } }
+        '401': { $ref: '#/components/responses/Problem' }
+    post:
+      tags: [templates]
+      operationId: createTemplate
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/TemplateInput' } } }
+      responses:
+        '201': { description: Oluşturuldu, content: { application/json: { schema: { $ref: '#/components/schemas/Template' } } } }
+        '422': { $ref: '#/components/responses/Problem' }
+  /templates/{id}:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    patch:
+      tags: [templates]
+      operationId: updateTemplate
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/TemplateInput' } } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Template' } } } }
+        '403': { $ref: '#/components/responses/Problem' }
+    delete:
+      tags: [templates]
+      operationId: deleteTemplate
+      responses:
+        '204': { description: Silindi }
+        '403': { $ref: '#/components/responses/Problem' }
+
+  # ───────────── STATS ─────────────
+  /dashboard:
+    get:
+      tags: [stats]
+      operationId: getDashboard
+      description: Ana panel — günlük özet + aktif kuyruk tek istekte.
+      parameters: [{ name: channelId, in: query, schema: { type: string } }]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Dashboard' } } } }
+        '401': { $ref: '#/components/responses/Problem' }
+  /stats/overview:
+    get:
+      tags: [stats]
+      operationId: getStatsOverview
+      parameters:
+        - { name: channelId, in: query, required: true, schema: { type: string } }
+        - { name: range, in: query, schema: { type: string, enum: [7d, 28d, 90d], default: 28d } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/StatsOverview' } } } }
+        '404': { $ref: '#/components/responses/Problem' }
+  /clips/{id}/stats:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    get:
+      tags: [stats]
+      operationId: getClipStats
+      responses:
+        '200':
+          description: 24 saat / 7 gün / 28 gün pencereleri
+          content:
+            application/json:
+              schema: { type: object, required: [items], properties: { items: { type: array, items: { $ref: '#/components/schemas/ClipStats' } } } }
+        '404': { $ref: '#/components/responses/Problem' }
+
+  # ───────────── BILLING ─────────────
+  /subscription:
+    get:
+      tags: [billing]
+      operationId: getSubscription
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Subscription' } } } }
+        '401': { $ref: '#/components/responses/Problem' }
+  /subscription/sync:
+    post:
+      tags: [billing]
+      operationId: syncSubscription
+      description: Satın alma sonrası istemci çağırır; sunucu RevenueCat REST API'den durumu çeker (webhook gecikmesine karşı).
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Subscription' } } } }
+        '502': { $ref: '#/components/responses/Problem' }
+  /usage:
+    get:
+      tags: [billing]
+      operationId: listUsage
+      parameters:
+        - { $ref: '#/components/parameters/Cursor' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses:
+        '200':
+          description: Kredi hareketleri (maliyet satırları kullanıcıya gösterilmez)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/UsageEntry' } }
+                  nextCursor: { type: [string, 'null'] }
+        '401': { $ref: '#/components/responses/Problem' }
+  /webhooks/revenuecat:
+    post:
+      tags: [billing]
+      operationId: revenueCatWebhook
+      security: [{ webhookSecret: [] }]
+      description: Olay kimliğiyle idempotent. Plan değişiminde kredi ve yetkiler güncellenir.
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, additionalProperties: true } } }
+      responses:
+        '200': { description: İşlendi }
+        '401': { $ref: '#/components/responses/Problem' }
+
+  # ───────────── NOTIFICATIONS ─────────────
+  /notifications:
+    get:
+      tags: [notifications]
+      operationId: listNotifications
+      parameters:
+        - { $ref: '#/components/parameters/Cursor' }
+        - { $ref: '#/components/parameters/Limit' }
+        - { name: unread, in: query, schema: { type: boolean } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, unreadCount]
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/Notification' } }
+                  unreadCount: { type: integer }
+                  nextCursor: { type: [string, 'null'] }
+        '401': { $ref: '#/components/responses/Problem' }
+  /notifications/read:
+    post:
+      tags: [notifications]
+      operationId: markNotificationsRead
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                ids: { type: array, items: { type: string } }
+                all: { type: boolean }
+      responses:
+        '204': { description: OK }
+        '401': { $ref: '#/components/responses/Problem' }
+
+  # ───────────── INTERNAL (video servisi → API) ─────────────
+  /internal/jobs/{jobId}/events:
+    parameters: [{ name: jobId, in: path, required: true, schema: { type: string } }]
+    post:
+      tags: [internal]
+      operationId: reportJobEvent
+      security: [{ serviceHmac: [] }]
+      description: |
+        Yalnızca özel ağda. Worker'lar ilerleme/sonuç bildirir; API durum makinesini ilerletir,
+        sonraki aşamayı kuyruğa atar ve WebSocket olayını yayar. `X-Signature: sha256=<hmac(body)>`, `X-Timestamp` (±5 dk).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [kind, stage, type]
+              properties:
+                kind: { type: string, enum: [PIPELINE, RENDER] }
+                stage: { $ref: '#/components/schemas/PipelineStage' }
+                type: { type: string, enum: [STARTED, PROGRESS, SUCCEEDED, FAILED] }
+                progress: { type: integer, minimum: 0, maximum: 100 }
+                output: { type: object, additionalProperties: true }
+                error: { type: object, properties: { code: { type: string }, message: { type: string }, retryable: { type: boolean } } }
+                usage:
+                  type: array
+                  items:
+                    type: object
+                    required: [kind, quantity, costMicroUsd]
+                    properties:
+                      kind: { type: string, enum: [COST_LLM, COST_GPU, COST_TTS, COST_STORAGE] }
+                      provider: { type: string }
+                      quantity: { type: number }
+                      unit: { type: string }
+                      costMicroUsd: { type: integer, format: int64 }
+      responses:
+        '204': { description: Kabul edildi }
+        '401': { $ref: '#/components/responses/Problem' }
+  /health:
+    get:
+      tags: [internal]
+      operationId: health
+      security: []
+      responses:
+        '200':
+          description: db + redis + depolama denetimi
+          content:
+            application/json:
+              schema: { type: object, required: [status], properties: { status: { type: string, enum: [ok, degraded] }, checks: { type: object, additionalProperties: { type: string } } } }
+
+components:
+  securitySchemes:
+    bearer: { type: http, scheme: bearer, bearerFormat: JWT }
+    webhookSecret: { type: http, scheme: bearer, description: RevenueCat panelinde tanımlı paylaşılan sır }
+    serviceHmac: { type: apiKey, in: header, name: X-Signature }
+  parameters:
+    Id: { name: id, in: path, required: true, schema: { type: string } }
+    Cursor: { name: cursor, in: query, schema: { type: string } }
+    Limit: { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+    IdempotencyKey: { name: Idempotency-Key, in: header, schema: { type: string, maxLength: 64 } }
+  responses:
+    Problem:
+      description: Hata
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    AuthSession:
+      description: Oturum
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [accessToken, refreshToken, expiresIn, user]
+            properties:
+              accessToken: { type: string }
+              refreshToken: { type: string }
+              expiresIn: { type: integer, description: saniye }
+              user: { $ref: '#/components/schemas/User' }
+  schemas:
+    Problem:
+      type: object
+      required: [type, title, status, code]
+      properties:
+        type: { type: string }
+        title: { type: string }
+        status: { type: integer }
+        code:
+          type: string
+          description: |
+            VALIDATION_FAILED, UNAUTHENTICATED, TOKEN_REUSED, FORBIDDEN, NOT_FOUND, EMAIL_TAKEN, INVALID_CREDENTIALS,
+            VERSION_CONFLICT, INVALID_STATE, CREDITS_EXHAUSTED, CLIP_LIMIT_REACHED, CHANNEL_LIMIT_REACHED,
+            PLAN_REQUIRED, QUOTA_EXCEEDED, CHANNEL_TOKEN_EXPIRED, UPLOAD_TOO_LARGE, UNSUPPORTED_MEDIA,
+            RATE_LIMITED, UPSTREAM_ERROR, INTERNAL
+        detail: { type: string }
+        traceId: { type: string }
+        errors: { type: array, items: { type: object, properties: { path: { type: string }, message: { type: string } } } }
+    IdOnly: { type: object, required: [id], properties: { id: { type: string } } }
+    Locale: { type: string, enum: [TR, EN] }
+    ProjectStatus: { type: string, enum: [DRAFT, INGESTING, ANALYZING, GENERATING, SCORING, READY, FAILED, CANCELED, ARCHIVED] }
+    ClipStatus: { type: string, enum: [CANDIDATE, EDITING, READY, SCHEDULED, PUBLISHED, FAILED, ARCHIVED] }
+    PublishStatus: { type: string, enum: [PENDING_APPROVAL, SCHEDULED, QUOTA_DEFERRED, UPLOADING, RETRY_WAIT, PROCESSING, PUBLISHED, FAILED, CANCELED] }
+    PipelineStage: { type: string, enum: [INGEST, ANALYZE, CANDIDATES, SCORE, EDIT, COMMENTARY, METADATA, QC, PUBLISH, LEARN] }
+    JobStatus: { type: string, enum: [QUEUED, RUNNING, RETRYING, SUCCEEDED, FAILED, CANCELED] }
+    YoutubePrivacy: { type: string, enum: [PUBLIC, UNLISTED, PRIVATE] }
+    TemplateKind: { type: string, enum: [SUBTITLE, BRAND, COMMENTARY, METADATA] }
+    Plan: { type: string, enum: [FREE, PRO, AGENCY] }
+    ChannelRole: { type: string, enum: [OWNER, EDITOR, VIEWER] }
+    AspectRatio: { type: string, enum: [PORTRAIT_9_16, SQUARE_1_1, LANDSCAPE_16_9] }
+    Resolution: { type: string, enum: [HD_720, FHD_1080, UHD_4K] }
+    User:
+      type: object
+      required: [id, email, displayName, locale, timezone, plan, createdAt]
+      properties:
+        id: { type: string }
+        email: { type: string, format: email }
+        emailVerified: { type: boolean }
+        displayName: { type: string }
+        avatarUrl: { type: [string, 'null'] }
+        locale: { $ref: '#/components/schemas/Locale' }
+        timezone: { type: string }
+        plan: { $ref: '#/components/schemas/Plan' }
+        revenueCatId: { type: string }
+        createdAt: { type: string, format: date-time }
+    DataRequest:
+      type: object
+      required: [id, type, status, createdAt]
+      properties:
+        id: { type: string }
+        type: { type: string, enum: [EXPORT, DELETE] }
+        status: { type: string, enum: [PENDING, PROCESSING, COMPLETED, FAILED] }
+        scheduledFor: { type: [string, 'null'], format: date-time }
+        createdAt: { type: string, format: date-time }
+    Channel:
+      type: object
+      required: [id, youtubeChannelId, title, status, role]
+      properties:
+        id: { type: string }
+        youtubeChannelId: { type: string }
+        title: { type: string }
+        handle: { type: [string, 'null'] }
+        thumbnailUrl: { type: [string, 'null'] }
+        status: { type: string, enum: [ACTIVE, TOKEN_EXPIRED, DISCONNECTED] }
+        role: { $ref: '#/components/schemas/ChannelRole' }
+        subscriberCount: { type: [integer, 'null'] }
+        createdAt: { type: string, format: date-time }
+    Member:
+      type: object
+      required: [id, role, email]
+      properties:
+        id: { type: string }
+        userId: { type: [string, 'null'] }
+        email: { type: string, format: email }
+        displayName: { type: [string, 'null'] }
+        role: { $ref: '#/components/schemas/ChannelRole' }
+        acceptedAt: { type: [string, 'null'], format: date-time }
+    Settings:
+      type: object
+      description: Kanal profili. PATCH'te tüm alanlar isteğe bağlıdır.
+      properties:
+        automationMode: { type: string, enum: [FULL_AUTO, APPROVAL, DRAFT_ONLY] }
+        dailyClipCount: { type: integer, minimum: 0, maximum: 50 }
+        timeSlots:
+          type: array
+          maxItems: 12
+          items:
+            type: object
+            required: [start, end]
+            properties:
+              start: { type: string, pattern: '^([01]\d|2[0-3]):[0-5]\d$' }
+              end: { type: string, pattern: '^([01]\d|2[0-3]):[0-5]\d$' }
+        timezone: { type: string }
+        useBestTimes: { type: boolean }
+        minDurationSec: { type: integer, minimum: 15, maximum: 90 }
+        maxDurationSec: { type: integer, minimum: 15, maximum: 90 }
+        minScore: { type: integer, minimum: 0, maximum: 100 }
+        maxClipsPerVideo: { type: integer, minimum: 1, maximum: 30 }
+        aspectRatio: { $ref: '#/components/schemas/AspectRatio' }
+        resolution: { $ref: '#/components/schemas/Resolution' }
+        subtitle:
+          type: object
+          properties:
+            templateId: { type: string }
+            fontFamily: { type: string }
+            fontSize: { type: integer, minimum: 24, maximum: 160 }
+            color: { type: string, pattern: '^#[0-9A-Fa-f]{6}$' }
+            highlightColor: { type: string, pattern: '^#[0-9A-Fa-f]{6}$' }
+            position: { type: string, enum: [TOP, MIDDLE, BOTTOM] }
+            language: { type: string }
+            translateTo: { type: [string, 'null'] }
+        commentaryFormat: { type: string, enum: [NONE, REACTION, ANALYSIS, RANKING] }
+        commentaryTone: { type: string, enum: [FUNNY, SERIOUS, INFORMATIVE] }
+        commentaryPrompt: { type: [string, 'null'], maxLength: 1000 }
+        commentaryMaxSec: { type: integer, minimum: 3, maximum: 45 }
+        audio:
+          type: object
+          properties:
+            ttsVoice: { type: string }
+            ttsSpeed: { type: number, minimum: 0.7, maximum: 1.4 }
+            musicGenre: { type: string }
+            musicLevelDb: { type: number, minimum: -40, maximum: 0 }
+        brand:
+          type: object
+          properties:
+            logoKey: { type: [string, 'null'] }
+            watermarkKey: { type: [string, 'null'] }
+            introKey: { type: [string, 'null'] }
+            outroKey: { type: [string, 'null'] }
+            palette: { type: array, maxItems: 5, items: { type: string, pattern: '^#[0-9A-Fa-f]{6}$' } }
+        titleLanguage: { $ref: '#/components/schemas/Locale' }
+        fixedTags: { type: array, maxItems: 20, items: { type: string } }
+        descriptionTemplate: { type: [string, 'null'], maxLength: 4000 }
+        youtubeCategoryId: { type: string }
+        defaultPrivacy: { $ref: '#/components/schemas/YoutubePrivacy' }
+        madeForKids: { type: boolean }
+    UploadSession:
+      type: object
+      required: [id, status, partSize, partCount, expiresAt]
+      properties:
+        id: { type: string }
+        status: { type: string, enum: [INITIATED, IN_PROGRESS, COMPLETED, ABORTED, EXPIRED] }
+        partSize: { type: integer }
+        partCount: { type: integer }
+        completedParts: { type: array, items: { type: integer } }
+        expiresAt: { type: string, format: date-time }
+    Project:
+      type: object
+      required: [id, channelId, title, status, progress, createdAt]
+      properties:
+        id: { type: string }
+        channelId: { type: string }
+        title: { type: string }
+        status: { $ref: '#/components/schemas/ProjectStatus' }
+        currentStage: { oneOf: [{ $ref: '#/components/schemas/PipelineStage' }, { type: 'null' }] }
+        progress: { type: integer, minimum: 0, maximum: 100 }
+        thumbnailUrl: { type: [string, 'null'] }
+        durationSec: { type: [number, 'null'] }
+        candidateCount: { type: integer }
+        clipCount: { type: integer }
+        creditsConsumed: { type: integer }
+        error: { oneOf: [{ $ref: '#/components/schemas/JobError' }, { type: 'null' }] }
+        createdAt: { type: string, format: date-time }
+        completedAt: { type: [string, 'null'], format: date-time }
+    ProjectDetail:
+      allOf:
+        - { $ref: '#/components/schemas/Project' }
+        - type: object
+          properties:
+            source:
+              type: object
+              properties:
+                type: { type: string, enum: [UPLOAD, LINK] }
+                status: { type: string }
+                width: { type: [integer, 'null'] }
+                height: { type: [integer, 'null'] }
+                language: { type: [string, 'null'] }
+                rightsBasis: { type: string }
+            stages: { type: array, items: { $ref: '#/components/schemas/StageState' } }
+            etaSec: { type: [integer, 'null'] }
+    StageState:
+      type: object
+      required: [stage, status, progress]
+      properties:
+        stage: { $ref: '#/components/schemas/PipelineStage' }
+        status: { $ref: '#/components/schemas/JobStatus' }
+        progress: { type: integer }
+        attempt: { type: integer }
+        startedAt: { type: [string, 'null'], format: date-time }
+        finishedAt: { type: [string, 'null'], format: date-time }
+    JobError:
+      type: object
+      required: [code, message]
+      properties:
+        code: { type: string }
+        message: { type: string }
+    Transcript:
+      type: object
+      required: [language, segments, wordsUrl]
+      properties:
+        language: { type: string }
+        speakers: { type: array, items: { type: object, properties: { id: { type: string }, label: { type: string } } } }
+        segments:
+          type: array
+          items:
+            type: object
+            required: [id, start, end, text]
+            properties:
+              id: { type: integer }
+              start: { type: number }
+              end: { type: number }
+              text: { type: string }
+              speaker: { type: [string, 'null'] }
+        wordsUrl: { type: string, format: uri, description: Kelime zaman damgaları için imzalı URL }
+    Candidate:
+      type: object
+      required: [id, startSec, endSec, durationSec, text, status]
+      properties:
+        id: { type: string }
+        startSec: { type: number }
+        endSec: { type: number }
+        durationSec: { type: number }
+        text: { type: string }
+        status: { type: string, enum: [PENDING_SCORE, SCORED, ACCEPTED, REJECTED, BELOW_THRESHOLD] }
+        score: { type: [integer, 'null'], minimum: 0, maximum: 100 }
+        breakdown:
+          type: object
+          properties:
+            hook: { type: integer }
+            emotion: { type: integer }
+            standalone: { type: integer }
+            curiosity: { type: integer }
+            shareability: { type: integer }
+        rationale:
+          type: object
+          properties:
+            summary: { type: string }
+            hook: { type: string }
+            emotion: { type: string }
+            standalone: { type: string }
+            curiosity: { type: string }
+            shareability: { type: string }
+            suggestedHook: { type: string }
+            risks: { type: array, items: { type: string } }
+        previewUrl: { type: [string, 'null'], format: uri }
+        clipId: { type: [string, 'null'] }
+    EditSpec:
+      type: object
+      properties:
+        crop:
+          type: object
+          properties:
+            mode: { type: string, enum: [AUTO_FACE, CENTER, MANUAL] }
+            keyframes:
+              type: array
+              items:
+                type: object
+                required: [t, x, y, scale]
+                properties:
+                  t: { type: number }
+                  x: { type: number, minimum: 0, maximum: 1 }
+                  y: { type: number, minimum: 0, maximum: 1 }
+                  scale: { type: number, minimum: 1, maximum: 4 }
+        subtitles:
+          type: object
+          properties:
+            enabled: { type: boolean }
+            templateId: { type: string }
+            style: { type: object, additionalProperties: true }
+            words:
+              type: array
+              items:
+                type: object
+                required: [start, end, text]
+                properties:
+                  start: { type: number }
+                  end: { type: number }
+                  text: { type: string }
+                  highlight: { type: boolean }
+        hook: { type: object, properties: { text: { type: string, maxLength: 80 }, durationSec: { type: number, default: 2 } } }
+        effects:
+          type: array
+          items:
+            type: object
+            required: [type, at]
+            properties:
+              type: { type: string, enum: [ZOOM_IN, ZOOM_OUT, CUT, FADE, SHAKE] }
+              at: { type: number }
+              durationSec: { type: number }
+              intensity: { type: number }
+        music: { type: object, properties: { trackId: { type: [string, 'null'] }, levelDb: { type: number }, ducking: { type: boolean } } }
+        commentary:
+          type: object
+          properties:
+            format: { type: string, enum: [NONE, REACTION, ANALYSIS, RANKING] }
+            placements: { type: array, items: { type: object, properties: { at: { type: number }, text: { type: string } } } }
+        brand: { type: object, additionalProperties: true }
+    Clip:
+      type: object
+      required: [id, projectId, channelId, status, qcStatus, version, startSec, endSec]
+      properties:
+        id: { type: string }
+        projectId: { type: string }
+        channelId: { type: string }
+        candidateId: { type: [string, 'null'] }
+        status: { $ref: '#/components/schemas/ClipStatus' }
+        qcStatus: { type: string, enum: [PENDING, PASSED, AUTO_FIXED, FLAGGED] }
+        qcReport:
+          type: array
+          items:
+            type: object
+            properties:
+              check: { type: string, enum: [DURATION, RESOLUTION, LOUDNESS, SUBTITLE_OVERFLOW, BLACK_FRAMES] }
+              passed: { type: boolean }
+              value: { type: string }
+              fixed: { type: boolean }
+        version: { type: integer }
+        score: { type: [integer, 'null'] }
+        startSec: { type: number }
+        endSec: { type: number }
+        durationSec: { type: [number, 'null'] }
+        aspectRatio: { $ref: '#/components/schemas/AspectRatio' }
+        resolution: { $ref: '#/components/schemas/Resolution' }
+        watermarked: { type: boolean }
+        editSpec: { $ref: '#/components/schemas/EditSpec' }
+        hookText: { type: [string, 'null'] }
+        commentaryScript: { type: [string, 'null'] }
+        title: { type: [string, 'null'] }
+        titleAlternatives: { type: array, items: { type: string } }
+        description: { type: [string, 'null'] }
+        tags: { type: array, items: { type: string } }
+        hashtags: { type: array, items: { type: string } }
+        videoUrl: { type: [string, 'null'], format: uri }
+        thumbnailUrl: { type: [string, 'null'], format: uri }
+        renderProgress: { type: [integer, 'null'] }
+        publishJob: { oneOf: [{ $ref: '#/components/schemas/PublishJob' }, { type: 'null' }] }
+        error: { oneOf: [{ $ref: '#/components/schemas/JobError' }, { type: 'null' }] }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    PublishJob:
+      type: object
+      required: [id, clipId, channelId, status, scheduledAt]
+      properties:
+        id: { type: string }
+        clipId: { type: string }
+        channelId: { type: string }
+        status: { $ref: '#/components/schemas/PublishStatus' }
+        scheduledAt: { type: string, format: date-time }
+        privacy: { $ref: '#/components/schemas/YoutubePrivacy' }
+        title: { type: string }
+        thumbnailUrl: { type: [string, 'null'] }
+        attempt: { type: integer }
+        nextAttemptAt: { type: [string, 'null'], format: date-time }
+        uploadProgress: { type: integer, minimum: 0, maximum: 100 }
+        youtubeVideoId: { type: [string, 'null'] }
+        youtubeUrl: { type: [string, 'null'], format: uri }
+        publishedAt: { type: [string, 'null'], format: date-time }
+        error: { oneOf: [{ $ref: '#/components/schemas/JobError' }, { type: 'null' }] }
+    TemplateInput:
+      type: object
+      required: [kind, name, config]
+      properties:
+        kind: { $ref: '#/components/schemas/TemplateKind' }
+        name: { type: string, maxLength: 60 }
+        channelId: { type: [string, 'null'] }
+        config: { type: object, additionalProperties: true }
+    Template:
+      allOf:
+        - { $ref: '#/components/schemas/TemplateInput' }
+        - type: object
+          required: [id, isSystem]
+          properties:
+            id: { type: string }
+            isSystem: { type: boolean }
+            previewUrl: { type: [string, 'null'] }
+    ClipStats:
+      type: object
+      required: [window, views, capturedAt]
+      properties:
+        window: { type: string, enum: [H24, D7, D28] }
+        views: { type: integer }
+        likes: { type: integer }
+        comments: { type: integer }
+        shares: { type: integer }
+        avgViewPct: { type: [number, 'null'] }
+        subscribersGained: { type: integer }
+        capturedAt: { type: string, format: date-time }
+    Dashboard:
+      type: object
+      required: [today, queue, credits]
+      properties:
+        today:
+          type: object
+          properties:
+            published: { type: integer }
+            scheduled: { type: integer }
+            awaitingApproval: { type: integer }
+            failed: { type: integer }
+            views24h: { type: integer }
+        queue:
+          type: object
+          properties:
+            projects: { type: array, items: { $ref: '#/components/schemas/Project' } }
+            rendering: { type: array, items: { $ref: '#/components/schemas/Clip' } }
+            upcoming: { type: array, items: { $ref: '#/components/schemas/PublishJob' } }
+        credits: { type: object, properties: { used: { type: integer }, granted: { type: integer }, clipsUsed: { type: integer }, clipLimit: { type: [integer, 'null'] } } }
+    StatsOverview:
+      type: object
+      required: [totals, series, topClips]
+      properties:
+        totals: { type: object, properties: { views: { type: integer }, likes: { type: integer }, comments: { type: integer }, subscribersGained: { type: integer }, clipsPublished: { type: integer }, avgViewPct: { type: [number, 'null'] } } }
+        series: { type: array, items: { type: object, required: [date, views], properties: { date: { type: string, format: date }, views: { type: integer }, clipsPublished: { type: integer } } } }
+        topClips: { type: array, items: { type: object, properties: { clipId: { type: string }, title: { type: string }, thumbnailUrl: { type: [string, 'null'] }, views: { type: integer }, score: { type: [integer, 'null'] } } } }
+        insight: { type: [string, 'null'], description: Öğrenme döngüsünün güncel özeti }
+    Subscription:
+      type: object
+      required: [plan, status, limits, usage, currentPeriodEnd]
+      properties:
+        plan: { $ref: '#/components/schemas/Plan' }
+        status: { type: string, enum: [ACTIVE, TRIALING, IN_GRACE, PAST_DUE, CANCELED, EXPIRED] }
+        willRenew: { type: boolean }
+        currentPeriodEnd: { type: string, format: date-time }
+        limits:
+          type: object
+          properties:
+            clipsPerMonth: { type: [integer, 'null'], description: null = sınırsız }
+            creditsPerMonth: { type: integer }
+            maxResolution: { $ref: '#/components/schemas/Resolution' }
+            maxChannels: { type: integer }
+            watermark: { type: boolean }
+            teamAccess: { type: boolean }
+            queuePriority: { type: integer }
+        usage: { type: object, properties: { clipsUsed: { type: integer }, creditsUsed: { type: integer }, creditsGranted: { type: integer }, channelsUsed: { type: integer } } }
+    UsageEntry:
+      type: object
+      required: [id, kind, credits, createdAt]
+      properties:
+        id: { type: string }
+        kind: { type: string, enum: [CREDIT_GRANT, CREDIT_CONSUME, CREDIT_REFUND, CLIP_RENDER] }
+        credits: { type: integer }
+        projectId: { type: [string, 'null'] }
+        projectTitle: { type: [string, 'null'] }
+        createdAt: { type: string, format: date-time }
+    Notification:
+      type: object
+      required: [id, type, params, createdAt]
+      properties:
+        id: { type: string }
+        type:
+          type: string
+          enum: [PROJECT_READY, PROJECT_FAILED, CLIP_READY, CLIP_NEEDS_APPROVAL, CLIP_PUBLISHED, PUBLISH_FAILED, QUOTA_WARNING, CHANNEL_TOKEN_EXPIRED, CREDITS_LOW, SUBSCRIPTION_CHANGED, TEAM_INVITE]
+        params: { type: object, additionalProperties: true }
+        deepLink: { type: [string, 'null'] }
+        readAt: { type: [string, 'null'], format: date-time }
+        createdAt: { type: string, format: date-time }

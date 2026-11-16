@@ -1,0 +1,909 @@
+// KlipAI — PostgreSQL şeması (Prisma 6)
+// Kural: tüm PK'ler cuid, tüm zamanlar UTC, para/maliyet alanları mikro-USD (Int/BigInt).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ───────────────────────── ENUM'LAR ─────────────────────────
+
+enum AuthProvider {
+  EMAIL
+  GOOGLE
+}
+
+enum Locale {
+  TR
+  EN
+}
+
+enum ChannelRole {
+  OWNER
+  EDITOR
+  VIEWER
+}
+
+enum ChannelStatus {
+  ACTIVE
+  TOKEN_EXPIRED
+  DISCONNECTED
+}
+
+enum AutomationMode {
+  FULL_AUTO
+  APPROVAL
+  DRAFT_ONLY
+}
+
+enum AspectRatio {
+  PORTRAIT_9_16
+  SQUARE_1_1
+  LANDSCAPE_16_9
+}
+
+enum Resolution {
+  HD_720
+  FHD_1080
+  UHD_4K
+}
+
+enum CommentaryTone {
+  FUNNY
+  SERIOUS
+  INFORMATIVE
+}
+
+enum CommentaryFormat {
+  NONE
+  REACTION
+  ANALYSIS
+  RANKING
+}
+
+enum SourceType {
+  UPLOAD
+  LINK
+}
+
+enum RightsBasis {
+  OWN_CONTENT
+  LICENSED
+  PUBLIC_DOMAIN
+  PERMITTED
+}
+
+// Proje durum makinesi:
+// DRAFT → INGESTING → ANALYZING → GENERATING → SCORING → READY → ARCHIVED
+// herhangi bir aktif durum → FAILED | CANCELED ; FAILED → (retry) → kaldığı aşama
+enum ProjectStatus {
+  DRAFT
+  INGESTING
+  ANALYZING
+  GENERATING
+  SCORING
+  READY
+  FAILED
+  CANCELED
+  ARCHIVED
+}
+
+enum SourceVideoStatus {
+  PENDING
+  UPLOADING
+  DOWNLOADING
+  PROBING
+  READY
+  FAILED
+}
+
+enum UploadStatus {
+  INITIATED
+  IN_PROGRESS
+  COMPLETED
+  ABORTED
+  EXPIRED
+}
+
+enum CandidateStatus {
+  PENDING_SCORE
+  SCORED
+  ACCEPTED
+  REJECTED
+  BELOW_THRESHOLD
+}
+
+// Klip durum makinesi:
+// CANDIDATE → EDITING → READY → SCHEDULED → PUBLISHED
+// EDITING/SCHEDULED → FAILED ; FAILED → EDITING (yeniden kurgu) | SCHEDULED (yeniden yayın)
+// READY → EDITING (kullanıcı düzenledi) ; SCHEDULED → READY (plan iptal) ; * → ARCHIVED
+enum ClipStatus {
+  CANDIDATE
+  EDITING
+  READY
+  SCHEDULED
+  PUBLISHED
+  FAILED
+  ARCHIVED
+}
+
+enum QcStatus {
+  PENDING
+  PASSED
+  AUTO_FIXED
+  FLAGGED
+}
+
+enum PipelineStage {
+  INGEST
+  ANALYZE
+  CANDIDATES
+  SCORE
+  EDIT
+  COMMENTARY
+  METADATA
+  QC
+  PUBLISH
+  LEARN
+}
+
+// QUEUED → RUNNING → SUCCEEDED | FAILED ; FAILED → RETRYING → RUNNING ; QUEUED/RUNNING → CANCELED
+enum JobStatus {
+  QUEUED
+  RUNNING
+  RETRYING
+  SUCCEEDED
+  FAILED
+  CANCELED
+}
+
+// PENDING_APPROVAL → SCHEDULED → UPLOADING → PROCESSING → PUBLISHED
+// UPLOADING → RETRY_WAIT (üstel geri çekilme, en çok 3) → UPLOADING ; → FAILED
+// SCHEDULED → QUOTA_DEFERRED (kota dolu, sonraki pencereye) → SCHEDULED ; * → CANCELED
+enum PublishStatus {
+  PENDING_APPROVAL
+  SCHEDULED
+  QUOTA_DEFERRED
+  UPLOADING
+  RETRY_WAIT
+  PROCESSING
+  PUBLISHED
+  FAILED
+  CANCELED
+}
+
+enum YoutubePrivacy {
+  PUBLIC
+  UNLISTED
+  PRIVATE
+}
+
+enum TemplateKind {
+  SUBTITLE
+  BRAND
+  COMMENTARY
+  METADATA
+}
+
+enum Plan {
+  FREE
+  PRO
+  AGENCY
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  TRIALING
+  IN_GRACE
+  PAST_DUE
+  CANCELED
+  EXPIRED
+}
+
+enum UsageKind {
+  CREDIT_GRANT
+  CREDIT_CONSUME
+  CREDIT_REFUND
+  CLIP_RENDER
+  COST_LLM
+  COST_GPU
+  COST_TTS
+  COST_STORAGE
+}
+
+enum StatsWindow {
+  H24
+  D7
+  D28
+}
+
+enum NotificationType {
+  PROJECT_READY
+  PROJECT_FAILED
+  CLIP_READY
+  CLIP_NEEDS_APPROVAL
+  CLIP_PUBLISHED
+  PUBLISH_FAILED
+  QUOTA_WARNING
+  CHANNEL_TOKEN_EXPIRED
+  CREDITS_LOW
+  SUBSCRIPTION_CHANGED
+  TEAM_INVITE
+}
+
+enum DevicePlatform {
+  IOS
+  ANDROID
+}
+
+enum DataRequestType {
+  EXPORT
+  DELETE
+}
+
+enum DataRequestStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+// ───────────────────────── KİMLİK ─────────────────────────
+
+model User {
+  id              String    @id @default(cuid())
+  email           String    @unique
+  emailVerifiedAt DateTime?
+  passwordHash    String? // argon2id; yalnızca Google ile girişte null
+  displayName     String
+  avatarUrl       String?
+  locale          Locale    @default(TR)
+  timezone        String    @default("Europe/Istanbul")
+  revenueCatId    String    @unique @default(cuid()) // RevenueCat app_user_id
+  deletedAt       DateTime? // KVKK: yumuşak silme → 30 gün sonra kalıcı
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  identities       AuthIdentity[]
+  refreshTokens    RefreshToken[]
+  devices          Device[]
+  ownedChannels    Channel[]           @relation("ChannelOwner")
+  memberships      ChannelMember[]
+  projects         Project[]
+  rightsDecls      RightsDeclaration[]
+  uploads          UploadSession[]
+  templates        Template[]
+  subscription     Subscription?
+  usageLogs        UsageLog[]
+  notifications    Notification[]
+  dataRequests     DataRequest[]
+  oneTimeTokens    OneTimeToken[]
+
+  @@index([deletedAt])
+}
+
+model AuthIdentity {
+  id             String       @id @default(cuid())
+  userId         String
+  provider       AuthProvider
+  providerUserId String // Google "sub" veya e-posta
+  createdAt      DateTime     @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerUserId])
+  @@index([userId])
+}
+
+// Refresh token rotasyonu: her kullanımda yenisi üretilir; aynı aile içinde
+// iptal edilmiş token tekrar gelirse tüm aile iptal edilir (çalıntı tespiti).
+model RefreshToken {
+  id         String    @id @default(cuid())
+  userId     String
+  familyId   String
+  tokenHash  String    @unique // SHA-256
+  userAgent  String?
+  ip         String?
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  replacedBy String?
+  createdAt  DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([familyId])
+  @@index([expiresAt])
+}
+
+// E-posta doğrulama ve parola sıfırlama için tek kullanımlık token.
+model OneTimeToken {
+  id        String    @id @default(cuid())
+  userId    String
+  purpose   String // "verify_email" | "reset_password"
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, purpose])
+}
+
+model Device {
+  id         String         @id @default(cuid())
+  userId     String
+  platform   DevicePlatform
+  pushToken  String         @unique // Expo push token
+  locale     Locale         @default(TR)
+  appVersion String?
+  lastSeenAt DateTime       @default(now())
+  createdAt  DateTime       @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+// ───────────────────────── KANAL ─────────────────────────
+
+model Channel {
+  id               String        @id @default(cuid())
+  ownerId          String
+  youtubeChannelId String        @unique
+  title            String
+  handle           String?
+  thumbnailUrl     String?
+  status           ChannelStatus @default(ACTIVE)
+  // OAuth token'ları AES-256-GCM ile şifreli (iv.tag.cipher, base64); anahtar KMS/ortam değişkeninde.
+  accessTokenEnc   String
+  refreshTokenEnc  String
+  tokenExpiresAt   DateTime
+  scopes           String[]
+  // YouTube Data API kotası (proje geneli 10.000 birim/gün; kanal başına pay izlenir)
+  quotaUsedToday   Int           @default(0)
+  quotaResetAt     DateTime      @default(now())
+  subscriberCount  Int?
+  lastSyncedAt     DateTime?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  owner       User             @relation("ChannelOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  members     ChannelMember[]
+  settings    Settings?
+  projects    Project[]
+  clips       Clip[]
+  publishJobs PublishJob[]
+  templates   Template[]
+  insights    LearningInsight[]
+
+  @@index([ownerId])
+  @@index([status])
+}
+
+model ChannelMember {
+  id          String      @id @default(cuid())
+  channelId   String
+  userId      String?
+  inviteEmail String? // kullanıcı henüz kayıtlı değilse
+  role        ChannelRole
+  invitedById String
+  acceptedAt  DateTime?
+  createdAt   DateTime    @default(now())
+
+  channel Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  user    User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([channelId, userId])
+  @@unique([channelId, inviteEmail])
+  @@index([userId])
+}
+
+// Kanal başına tek profil. Sık sorgulanan alanlar kolon, serbest biçimli gruplar JSONB
+// (Zod ile packages/shared içinde doğrulanır).
+model Settings {
+  id        String @id @default(cuid())
+  channelId String @unique
+
+  // Otomasyon
+  automationMode AutomationMode @default(APPROVAL)
+
+  // Plan
+  dailyClipCount  Int     @default(2)
+  timeSlots       Json    @default("[{\"start\":\"12:00\",\"end\":\"14:00\"},{\"start\":\"19:00\",\"end\":\"22:00\"}]")
+  timezone        String  @default("Europe/Istanbul")
+  useBestTimes    Boolean @default(true)
+
+  // Kesit
+  minDurationSec  Int @default(20)
+  maxDurationSec  Int @default(60)
+  minScore        Int @default(70)
+  maxClipsPerVideo Int @default(8)
+
+  // Format
+  aspectRatio AspectRatio @default(PORTRAIT_9_16)
+  resolution  Resolution  @default(FHD_1080)
+
+  // Altyazı: { templateId, fontFamily, fontSize, color, highlightColor, position, language, translateTo }
+  subtitle Json @default("{}")
+
+  // Yorum
+  commentaryFormat CommentaryFormat @default(NONE)
+  commentaryTone   CommentaryTone   @default(INFORMATIVE)
+  commentaryPrompt String?
+  commentaryMaxSec Int              @default(15)
+
+  // Ses: { ttsVoice, ttsSpeed, musicGenre, musicLevelDb }
+  audio Json @default("{}")
+
+  // Marka: { logoKey, watermarkKey, introKey, outroKey, palette[] }
+  brand Json @default("{}")
+
+  // Meta veri
+  titleLanguage       Locale         @default(TR)
+  fixedTags           String[]       @default([])
+  descriptionTemplate String?
+  youtubeCategoryId   String         @default("24")
+  defaultPrivacy      YoutubePrivacy @default(PUBLIC)
+  madeForKids         Boolean        @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  channel Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+}
+
+model Template {
+  id        String       @id @default(cuid())
+  ownerId   String? // null = sistem şablonu
+  channelId String?
+  kind      TemplateKind
+  name      String
+  isSystem  Boolean      @default(false)
+  config    Json
+  previewUrl String?
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  owner   User?    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  channel Channel? @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  @@index([ownerId, kind])
+  @@index([channelId, kind])
+  @@index([isSystem, kind])
+}
+
+// ───────────────────────── PROJE & KAYNAK ─────────────────────────
+
+model Project {
+  id           String        @id @default(cuid())
+  userId       String
+  channelId    String
+  title        String
+  status       ProjectStatus @default(DRAFT)
+  currentStage PipelineStage?
+  progress     Int           @default(0) // 0-100, ağırlıklı aşama ilerlemesi
+  // Proje başlatılırken kanal ayarlarının dondurulmuş kopyası (+ sihirbazdaki geçersiz kılmalar)
+  settingsSnapshot Json?
+  errorCode    String?
+  errorMessage String?
+  creditsReserved Int      @default(0)
+  creditsConsumed Int      @default(0)
+  costMicroUsd BigInt        @default(0)
+  startedAt    DateTime?
+  completedAt  DateTime?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  channel     Channel         @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  sourceVideo SourceVideo?
+  transcript  Transcript?
+  candidates  ClipCandidate[]
+  clips       Clip[]
+  pipelineJobs PipelineJob[]
+  usageLogs   UsageLog[]
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([channelId, status])
+  @@index([status, updatedAt])
+}
+
+model UploadSession {
+  id          String       @id @default(cuid())
+  userId      String
+  storageKey  String       @unique
+  s3UploadId  String
+  fileName    String
+  contentType String
+  sizeBytes   BigInt
+  partSize    Int
+  partCount   Int
+  status      UploadStatus @default(INITIATED)
+  expiresAt   DateTime
+  createdAt   DateTime     @default(now())
+  completedAt DateTime?
+
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sourceVideo SourceVideo?
+
+  @@index([userId, status])
+  @@index([status, expiresAt])
+}
+
+model SourceVideo {
+  id              String            @id @default(cuid())
+  projectId       String            @unique
+  type            SourceType
+  status          SourceVideoStatus @default(PENDING)
+  uploadSessionId String?           @unique
+  sourceUrl       String?
+  storageKey      String? // orijinal
+  proxyKey        String? // 720p analiz proxy'si
+  audioKey        String? // 16 kHz mono wav
+  checksumSha256  String?
+  sizeBytes       BigInt?
+  durationSec     Float?
+  width           Int?
+  height          Int?
+  fps             Float?
+  videoCodec      String?
+  audioCodec      String?
+  language        String?
+  // Analiz çıktıları (büyük diziler S3'te; burada anahtar tutulur)
+  scenesKey       String? // sahne sınırları JSON
+  audioEnergyKey  String? // RMS zarfı JSON
+  facesKey        String? // yüz izleri JSON
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  project       Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  uploadSession UploadSession?     @relation(fields: [uploadSessionId], references: [id])
+  rights        RightsDeclaration?
+
+  @@index([checksumSha256])
+}
+
+// Değiştirilemez hukuki kayıt: kullanıcı silinse bile (anonimleştirilerek) saklanır.
+model RightsDeclaration {
+  id            String      @id @default(cuid())
+  userId        String?
+  sourceVideoId String      @unique
+  basis         RightsBasis
+  details       String? // lisans no, izin veren, kaynak vb.
+  evidenceKey   String? // yüklenen belge
+  attestationText    String // kullanıcının onayladığı metnin tam hâli
+  attestationVersion String
+  ip            String
+  userAgent     String
+  declaredAt    DateTime    @default(now())
+
+  user        User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
+  sourceVideo SourceVideo @relation(fields: [sourceVideoId], references: [id], onDelete: Restrict)
+
+  @@index([userId])
+  @@index([declaredAt])
+}
+
+model Transcript {
+  id         String   @id @default(cuid())
+  projectId  String   @unique
+  language   String
+  model      String   @default("whisper-large-v3")
+  text       String // arama için düz metin
+  segments   Json // [{id,start,end,text,speaker}]
+  wordsKey   String // kelime zaman damgaları S3'te (60 dk ≈ 10k kelime)
+  speakers   Json // [{id,label,totalSec}]
+  wordCount  Int
+  createdAt  DateTime @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+// ───────────────────────── ADAY & KLİP ─────────────────────────
+
+model ClipCandidate {
+  id          String          @id @default(cuid())
+  projectId   String
+  startSec    Float
+  endSec      Float
+  durationSec Float
+  text        String
+  status      CandidateStatus @default(PENDING_SCORE)
+  // Puanlama (0-100). Toplam = .30 kanca + .25 duygu + .20 anlaşılırlık + .15 merak + .10 paylaşım
+  score            Int?
+  hookScore        Int?
+  emotionScore     Int?
+  standaloneScore  Int?
+  curiosityScore   Int?
+  shareabilityScore Int?
+  rationale   Json? // LLM gerekçe JSON'u (ölçüt başına açıklama + önerilen kanca)
+  features    Json? // {sceneCuts, avgEnergy, speakerCount, faceCoverage, wordsPerSec}
+  promptVersion String?
+  previewKey  String? // düşük çözünürlüklü önizleme
+  rank        Int?
+  createdAt   DateTime        @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  clip    Clip?
+
+  @@index([projectId, score(sort: Desc)])
+  @@index([projectId, status])
+}
+
+model Clip {
+  id          String     @id @default(cuid())
+  projectId   String
+  channelId   String
+  candidateId String?    @unique
+  status      ClipStatus @default(CANDIDATE)
+  qcStatus    QcStatus   @default(PENDING)
+  qcReport    Json? // [{check, passed, value, fixed}]
+  version     Int        @default(1) // iyimser kilit + çevrimdışı taslak birleştirme
+
+  startSec    Float
+  endSec      Float
+  aspectRatio AspectRatio
+  resolution  Resolution
+  watermarked Boolean    @default(false)
+
+  // Düzenlenebilir kurgu tarifi: { crop:{mode,keyframes[]}, subtitles:{style,words[]},
+  // hook:{text}, effects[], music:{trackId,levelDb}, brand:{...} }
+  editSpec    Json
+  hookText    String?
+
+  // Özgünleştirme
+  commentaryFormat CommentaryFormat @default(NONE)
+  commentaryScript String?
+  commentaryAudioKey String?
+
+  // Meta veri
+  title             String?
+  titleAlternatives String[] @default([])
+  description       String?
+  tags              String[] @default([])
+  hashtags          String[] @default([])
+
+  // Çıktılar
+  outputKey    String?
+  thumbnailKey String?
+  durationSec  Float?
+  sizeBytes    BigInt?
+  loudnessLufs Float?
+
+  errorCode    String?
+  errorMessage String?
+  approvedAt   DateTime?
+  approvedById String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  project     Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  channel     Channel        @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  candidate   ClipCandidate? @relation(fields: [candidateId], references: [id], onDelete: SetNull)
+  renderJobs  RenderJob[]
+  publishJobs PublishJob[]
+  stats       ClipStats[]
+
+  @@index([projectId])
+  @@index([channelId, status])
+  @@index([channelId, createdAt(sort: Desc)])
+  @@index([status, updatedAt])
+}
+
+// Proje düzeyi hat aşamaları (INGEST…SCORE, LEARN). Her satır bir BullMQ işidir.
+model PipelineJob {
+  id          String        @id @default(cuid())
+  projectId   String
+  stage       PipelineStage
+  status      JobStatus     @default(QUEUED)
+  queueJobId  String? // BullMQ job id
+  attempt     Int           @default(0)
+  maxAttempts Int           @default(3)
+  progress    Int           @default(0)
+  input       Json?
+  output      Json?
+  errorCode   String?
+  errorMessage String?
+  workerId    String?
+  costMicroUsd BigInt       @default(0)
+  queuedAt    DateTime      @default(now())
+  startedAt   DateTime?
+  finishedAt  DateTime?
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, stage])
+  @@index([status, queuedAt])
+}
+
+// Klip düzeyi hat aşamaları (EDIT, COMMENTARY, METADATA, QC).
+model RenderJob {
+  id          String        @id @default(cuid())
+  clipId      String
+  stage       PipelineStage
+  status      JobStatus     @default(QUEUED)
+  queueJobId  String?
+  priority    Int           @default(5) // 1 = en yüksek (Ajans), 5 = Ücretsiz
+  attempt     Int           @default(0)
+  maxAttempts Int           @default(3)
+  progress    Int           @default(0)
+  specSnapshot Json // işlendiği andaki editSpec
+  output      Json?
+  errorCode   String?
+  errorMessage String?
+  workerId    String?
+  gpuSeconds  Float         @default(0)
+  costMicroUsd BigInt       @default(0)
+  queuedAt    DateTime      @default(now())
+  startedAt   DateTime?
+  finishedAt  DateTime?
+
+  clip Clip @relation(fields: [clipId], references: [id], onDelete: Cascade)
+
+  @@index([clipId, stage])
+  @@index([status, priority, queuedAt])
+}
+
+model PublishJob {
+  id          String         @id @default(cuid())
+  clipId      String
+  channelId   String
+  status      PublishStatus  @default(SCHEDULED)
+  scheduledAt DateTime
+  privacy     YoutubePrivacy @default(PUBLIC)
+  // Yükleme anında dondurulan meta veri
+  title       String
+  description String
+  tags        String[]       @default([])
+  categoryId  String
+  // Resumable upload durumu
+  uploadUrl      String? // YouTube oturum URI'si
+  bytesUploaded  BigInt   @default(0)
+  attempt        Int      @default(0)
+  maxAttempts    Int      @default(3)
+  nextAttemptAt  DateTime?
+  quotaCost      Int      @default(1650) // videos.insert 1600 + thumbnails.set 50
+  youtubeVideoId String?  @unique
+  errorCode      String?
+  errorMessage   String?
+  publishedAt    DateTime?
+  createdById    String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  clip    Clip    @relation(fields: [clipId], references: [id], onDelete: Cascade)
+  channel Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  @@index([channelId, scheduledAt])
+  @@index([status, scheduledAt])
+  @@index([clipId])
+}
+
+// ───────────────────────── ÖĞRENME & İSTATİSTİK ─────────────────────────
+
+model ClipStats {
+  id             String      @id @default(cuid())
+  clipId         String
+  window         StatsWindow
+  views          Int         @default(0)
+  likes          Int         @default(0)
+  comments       Int         @default(0)
+  shares         Int         @default(0)
+  avgViewPct     Float? // ortalama izlenme yüzdesi
+  avgViewSec     Float?
+  subscribersGained Int      @default(0)
+  capturedAt     DateTime    @default(now())
+
+  clip Clip @relation(fields: [clipId], references: [id], onDelete: Cascade)
+
+  @@unique([clipId, window])
+  @@index([capturedAt])
+}
+
+// Kanal başına puanlama promptuna geri beslenen özet (her 7 günlük döngüde yeni sürüm).
+model LearningInsight {
+  id         String   @id @default(cuid())
+  channelId  String
+  version    Int
+  sampleSize Int
+  summary    String // prompt'a eklenen doğal dil özeti
+  features   Json // {topHooks[], bestDurationRange, bestTone, featureWeights{}}
+  active     Boolean  @default(true)
+  createdAt  DateTime @default(now())
+
+  channel Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  @@unique([channelId, version])
+  @@index([channelId, active])
+}
+
+// ───────────────────────── ABONELİK & KULLANIM ─────────────────────────
+
+model Subscription {
+  id                 String             @id @default(cuid())
+  userId             String             @unique
+  plan               Plan               @default(FREE)
+  status             SubscriptionStatus @default(ACTIVE)
+  store              String? // "app_store" | "play_store"
+  productId          String?
+  entitlement        String?
+  currentPeriodStart DateTime           @default(now())
+  currentPeriodEnd   DateTime
+  willRenew          Boolean            @default(false)
+  // Dönemlik sayaçlar (UsageLog'dan türetilir; hızlı kota kontrolü için burada tutulur)
+  creditsGranted     Int                @default(0) // işlenen dakika
+  creditsUsed        Int                @default(0)
+  clipsUsed          Int                @default(0)
+  lastEventId        String? // RevenueCat webhook idempotency
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([status, currentPeriodEnd])
+}
+
+// Yalnızca eklemeli defter: hem kredi hareketleri hem iş başına maliyet.
+model UsageLog {
+  id           String    @id @default(cuid())
+  userId       String
+  projectId    String?
+  clipId       String?
+  kind         UsageKind
+  credits      Int       @default(0) // +grant/refund, −consume
+  quantity     Float     @default(0) // dakika, token, GPU sn, karakter…
+  unit         String?
+  costMicroUsd BigInt    @default(0)
+  provider     String? // "openai", "elevenlabs", "runpod"…
+  idempotencyKey String? @unique
+  meta         Json?
+  createdAt    DateTime  @default(now())
+
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([projectId])
+  @@index([kind, createdAt])
+}
+
+// ───────────────────────── BİLDİRİM & KVKK ─────────────────────────
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  type      NotificationType
+  // i18n anahtarı + parametre: metin istemcide/push anında kullanıcının diline çevrilir
+  params    Json             @default("{}")
+  deepLink  String?
+  readAt    DateTime?
+  pushedAt  DateTime?
+  createdAt DateTime         @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([userId, readAt])
+}
+
+model DataRequest {
+  id          String            @id @default(cuid())
+  userId      String
+  type        DataRequestType
+  status      DataRequestStatus @default(PENDING)
+  resultKey   String? // dışa aktarma zip'i (imzalı URL ile 7 gün)
+  scheduledFor DateTime? // silme için 30 günlük bekleme sonu
+  completedAt DateTime?
+  createdAt   DateTime          @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, type])
+  @@index([status, scheduledFor])
+}
