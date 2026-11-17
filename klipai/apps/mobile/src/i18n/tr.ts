@@ -1,0 +1,78 @@
+export const tr = {
+  appName: 'KlipAI',
+  common: { save: 'Kaydet', cancel: 'Vazgeç', retry: 'Tekrar dene', delete: 'Sil', back: 'Geri', next: 'İleri', done: 'Tamam', loading: 'Yükleniyor…', error: 'Bir şeyler ters gitti', offline: 'Çevrimdışısınız; değişiklikler cihazda saklanıyor', seeAll: 'Tümü', close: 'Kapat', yes: 'Evet', no: 'Hayır', edit: 'Düzenle', add: 'Ekle', confirm: 'Onayla', empty: 'Henüz bir şey yok', min: 'dk', sec: 'sn', copy: 'Kopyala' },
+  auth: {
+    tagline: 'Uzun videolardan en güçlü anları bulur, kısa videoya çevirir ve YouTube\'a planlı yükler.',
+    start: 'Başla', haveAccount: 'Hesabım var', login: 'Giriş yap', register: 'Kayıt ol', email: 'E-posta', emailOrUser: 'E-posta veya kullanıcı adı', password: 'Parola', name: 'Adın', forgot: 'Parolamı unuttum',
+    google: 'Google ile devam et', or: 'veya', passwordHint: 'En az 8 karakter', forgotTitle: 'Parola sıfırla', forgotInfo: 'E-postana bir sıfırlama bağlantısı göndereceğiz.', forgotSent: 'Hesap varsa bağlantı gönderildi.',
+    send: 'Bağlantı gönder', resetTitle: 'Yeni parola', resetDone: 'Parolan güncellendi. Giriş yapabilirsin.', terms: 'Devam ederek Kullanım Koşulları ve Gizlilik Politikası\'nı kabul edersin.',
+    invalid: 'E-posta/kullanıcı adı veya parola hatalı', taken: 'Bu e-posta zaten kayıtlı', logout: 'Çıkış yap',
+  },
+  channel: {
+    connectTitle: 'YouTube kanalını bağla', connectInfo: 'Klipleri kanalına yüklemek için KlipAI\'ye yükleme ve istatistik izni vermen gerekir. İstediğin zaman bağlantıyı kesebilirsin.',
+    connect: 'YouTube ile bağlan', connected: 'Kanal bağlandı', failed: 'Bağlantı kurulamadı', disconnect: 'Bağlantıyı kes', disconnectAsk: 'Planlı yüklemeler iptal edilir. Emin misin?', all: 'Tüm kanallar', status_TOKEN_EXPIRED: 'Yeniden bağlanmalı',
+    pick: 'Kanal seç', noChannel: 'Önce bir kanal bağla', team: 'Ekip', invite: 'Davet et', inviteEmail: 'E-posta', roles: { OWNER: 'Sahip', EDITOR: 'Editör', VIEWER: 'İzleyici' }, pending: 'Davet bekliyor',
+  },
+  tabs: { home: 'Panel', calendar: 'Takvim', stats: 'İstatistik', templates: 'Şablonlar', settings: 'Ayarlar' },
+  home: {
+    today: 'Bugün', published: 'Yayında', scheduled: 'Planlı', approval: 'Onay bekliyor', failed: 'Hatalı', views24h: '24 sa izlenme', queue: 'Kuyruk', upcoming: 'Yaklaşan yüklemeler',
+    newProject: 'Yeni proje', noQueue: 'Kuyrukta iş yok. Yeni bir proje başlat.', credits: 'Kredi', clips: 'Klip', unlimited: 'Sınırsız', rendering: 'Kurgulanıyor', projects: 'Projeler', recent: 'Son projeler',
+  },
+  stage: { INGEST: 'Alım', ANALYZE: 'Analiz', CANDIDATES: 'Aday üretimi', SCORE: 'Puanlama', EDIT: 'Kurgu', COMMENTARY: 'Yorum', METADATA: 'Meta veri', QC: 'Kalite kontrol', PUBLISH: 'Yayın', LEARN: 'Öğrenme' },
+  project: {
+    status_DRAFT: 'Taslak', status_INGESTING: 'Alınıyor', status_ANALYZING: 'Analiz ediliyor', status_GENERATING: 'Adaylar üretiliyor', status_SCORING: 'Puanlanıyor', status_READY: 'Hazır', status_FAILED: 'Başarısız', status_CANCELED: 'İptal', status_ARCHIVED: 'Arşiv',
+    inBackground: 'Uygulamayı kapatabilirsin; bitince bildirim gelecek.', cancel: 'İptal et', cancelAsk: 'İşlem durdurulur ve kullanılmayan kredi iade edilir.', retry: 'Başarısız aşamadan devam et', viewCandidates: 'Kesitleri gör', candidates: 'kesit', delete: 'Projeyi sil', deleteAsk: 'Proje, klipler ve dosyalar kalıcı silinir.',
+    stageStatus_QUEUED: 'Sırada', stageStatus_RUNNING: 'Çalışıyor', stageStatus_RETRYING: 'Yeniden deneniyor', stageStatus_SUCCEEDED: 'Tamam', stageStatus_FAILED: 'Hata', stageStatus_CANCELED: 'İptal', attempt: 'Deneme',
+  },
+  wizard: {
+    title: 'Yeni proje', step: 'Adım', s1: 'Kaynak', s2: 'Haklar', s3: 'Ayarlar', s4: 'Özet', projectName: 'Proje adı', pickFile: 'Video veya ses dosyası seç', fileChosen: 'Seçilen dosya', orLink: 'veya doğrudan dosya bağlantısı',
+    linkHint: 'https://…/video.mp4 (YouTube gibi sayfa bağlantıları desteklenmez)', rightsTitle: 'Bu içeriği kullanma hakkın var mı?', basis_OWN_CONTENT: 'Kendi içeriğim', basis_LICENSED: 'Lisanslı', basis_PUBLIC_DOMAIN: 'Kamu malı', basis_PERMITTED: 'Hak sahibinin izni var',
+    detailsHint: 'Lisans no, izin veren veya kaynak (isteğe bağlı)', accept: 'Yukarıdaki beyanın doğru olduğunu onaylıyorum', rightsNote: 'Beyanın tarih, IP ve cihaz bilgisiyle kayıt altına alınır.',
+    quick: 'Bu proje için', minScore: 'Asgari puan', maxClips: 'En çok klip', channelSettingsHint: 'Diğer tüm ayarlar kanal profilinden gelir.', summary: 'Özet', start: 'Başlat', uploading: 'Yükleniyor', resume: 'Yükleme kaldığı yerden sürecek',
+    draftSaved: 'Taslak cihazda saklandı', needChannel: 'Önce bir kanal seç', creating: 'Proje oluşturuluyor…', uploadFailed: 'Yükleme başarısız. Tekrar dene; kaldığı yerden devam eder.',
+  },
+  cand: {
+    title: 'Kesitler', score: 'Puan', hook: 'Kanca', emotion: 'Duygu', standalone: 'Anlaşılırlık', curiosity: 'Merak', shareability: 'Paylaşım', why: 'Gerekçe', risks: 'Dikkat', accept: 'Klip yap', reject: 'Reddet', open: 'Klibi aç',
+    preview: 'Önizleme', minScore: 'Asgari puan', none: 'Bu eşikte kesit yok', accepted: 'Kabul edildi', suggestedHook: 'Önerilen kanca', limit: 'Aylık klip hakkın doldu',
+  },
+  clip: {
+    title: 'Klip', status_CANDIDATE: 'Aday', status_EDITING: 'Kurgulanıyor', status_READY: 'Hazır', status_SCHEDULED: 'Planlandı', status_PUBLISHED: 'Yayında', status_FAILED: 'Hata', status_ARCHIVED: 'Arşiv',
+    qc: 'Kalite kontrol', qc_PENDING: 'Bekliyor', qc_PASSED: 'Geçti', qc_AUTO_FIXED: 'Otomatik düzeltildi', qc_FLAGGED: 'İncelemen gerekiyor', check_DURATION: 'Süre', check_RESOLUTION: 'Çözünürlük', check_LOUDNESS: 'Ses seviyesi', check_SUBTITLE_OVERFLOW: 'Altyazı taşması', check_BLACK_FRAMES: 'Siyah kare',
+    trim: 'Kırpma', start: 'Başlangıç', end: 'Bitiş', hookText: 'Kanca yazısı (ilk 2 sn)', subtitles: 'Altyazı metni', subtitlesHint: 'Yanlış kelimeleri düzelt; zamanlama korunur.', commentary: 'Yorum metni', commentaryHint: 'Her satır: [saniye] metin',
+    titleLabel: 'Başlık', alternatives: 'Alternatifler', description: 'Açıklama', tags: 'Etiketler (virgülle)', hashtags: 'Hashtag (virgülle)', saveDraft: 'Değişiklikleri kaydet', rerender: 'Yeniden kurgula', rerenderInfo: 'Kırpma, altyazı veya yorum değiştiyse yeniden kurgula.',
+    regen: 'Yeniden üret', regenCommentary: 'Yorum', regenMeta: 'Başlık ve açıklama', regenThumb: 'Kapak', schedule: 'Planla', approve: 'Onayla ve planla', publishNow: 'Hemen yayınla', cancelSchedule: 'Planı iptal et', download: 'Cihaza indir', at: 'Yayın zamanı',
+    pendingDraft: 'Gönderilmemiş değişiklikler var', synced: 'Eşitlendi', conflict: 'Klip başka yerde değişti. Yerel değişikliklerin saklandı.', keepMine: 'Benimkini uygula', useServer: 'Sunucudakini al', watermark: 'Ücretsiz planda filigran eklenir',
+    privacy: 'Gizlilik', privacy_PUBLIC: 'Herkese açık', privacy_UNLISTED: 'Liste dışı', privacy_PRIVATE: 'Özel', renderingNow: 'Kurgulanıyor', saved: 'Kaydedildi',
+  },
+  cal: { title: 'Takvim', empty: 'Bu gün için yükleme yok', reschedule: 'Zamanı değiştir', cancel: 'Planı iptal et', retry: 'Yeniden dene', approve: 'Onayla', open: 'Klibi aç', quota: 'YouTube kotası', uploadsLeft: 'yükleme hakkı kaldı', bestTimes: 'En iyi saatler', today: 'Bugün',
+    status_PENDING_APPROVAL: 'Onay bekliyor', status_SCHEDULED: 'Planlı', status_QUOTA_DEFERRED: 'Kota nedeniyle ertelendi', status_UPLOADING: 'Yükleniyor', status_RETRY_WAIT: 'Yeniden denenecek', status_PROCESSING: 'YouTube işliyor', status_PUBLISHED: 'Yayında', status_FAILED: 'Başarısız', status_CANCELED: 'İptal' },
+  stats: { title: 'İstatistik', views: 'İzlenme', likes: 'Beğeni', comments: 'Yorum', subs: 'Yeni abone', clips: 'Yayınlanan klip', retention: 'Ort. izlenme %', top: 'En iyi klipler', insight: 'Öğrenilenler', insightHint: 'Sonraki puanlamalar bu bulguları kullanır.', none: 'Henüz yayınlanmış klip yok', range7: '7 gün', range28: '28 gün', range90: '90 gün' },
+  tpl: { title: 'Şablonlar', SUBTITLE: 'Altyazı', BRAND: 'Marka', COMMENTARY: 'Yorum', METADATA: 'Meta veri', system: 'Sistem', mine: 'Benim', apply: 'Kanala uygula', applied: 'Uygulandı', saveCurrent: 'Mevcut ayarlardan kaydet', name: 'Şablon adı', deleteAsk: 'Şablon silinsin mi?' },
+  set: {
+    title: 'Ayarlar', account: 'Hesap', language: 'Dil', theme: 'Tema', lang_system: 'Sistem', lang_tr: 'Türkçe', lang_en: 'English', theme_system: 'Sistem', theme_light: 'Açık', theme_dark: 'Koyu', channels: 'Kanallar', profile: 'Kanal profili', subscription: 'Abonelik', notifications: 'Bildirimler',
+    privacy: 'Gizlilik ve veri', export: 'Verilerimi dışa aktar', exportDone: 'Hazır olunca e-postana bağlantı gelecek.', deleteAccount: 'Hesabımı sil', deleteAsk: 'Hesabın hemen devre dışı kalır ve 30 gün sonra kalıcı silinir. Hak beyanları yasal gereklilik nedeniyle anonim saklanır.', version: 'Sürüm', policy: 'Gizlilik Politikası', terms: 'Kullanım Koşulları',
+  },
+  prof: {
+    title: 'Kanal profili', automation: 'Otomasyon', mode_FULL_AUTO: 'Tam otomatik', mode_APPROVAL: 'Onaylı', mode_DRAFT_ONLY: 'Sadece taslak', modeHint_FULL_AUTO: 'Eşik üstü klipler otomatik kurgulanır ve planlanır.', modeHint_APPROVAL: 'Klipler kurgulanır, yayın için onayını bekler.', modeHint_DRAFT_ONLY: 'Kesitleri sen seçersin; plan da sende.',
+    plan: 'Yayın planı', daily: 'Günlük klip', slots: 'Saat aralıkları', addSlot: 'Aralık ekle', timezone: 'Saat dilimi', bestTimes: 'En iyi saat önerisini kullan', cut: 'Kesit', minDur: 'En kısa (sn)', maxDur: 'En uzun (sn)', minScore: 'Asgari puan', maxClips: 'Video başına en çok klip',
+    format: 'Format', ratio_PORTRAIT_9_16: 'Shorts 9:16', ratio_SQUARE_1_1: 'Kare 1:1', ratio_LANDSCAPE_16_9: 'Yatay 16:9', res_HD_720: '720p', res_FHD_1080: '1080p', res_UHD_4K: '4K',
+    subtitle: 'Altyazı', subOn: 'Altyazı ekle', font: 'Yazı tipi', size: 'Boyut', color: 'Renk', highlight: 'Vurgu rengi', position: 'Konum', pos_TOP: 'Üst', pos_MIDDLE: 'Orta', pos_BOTTOM: 'Alt', subLang: 'Altyazı dili', translate: 'Çeviri dili (boş = yok)',
+    commentary: 'Yorum', format_NONE: 'Yok', format_REACTION: 'Tepki', format_ANALYSIS: 'Analiz', format_RANKING: 'Sıralama', tone: 'Ton', tone_FUNNY: 'Komik', tone_SERIOUS: 'Ciddi', tone_INFORMATIVE: 'Bilgilendirici', customPrompt: 'Özel yönerge', maxSec: 'Yorum süresi (sn)',
+    audio: 'Ses', voice: 'TTS sesi', speed: 'Hız', music: 'Müzik türü', musicLevel: 'Müzik seviyesi (dB)', brand: 'Marka', brandInfo: 'Logo, filigran ve giriş/çıkış dosyaları web panelinden yüklenir; burada anahtarları görürsün.', palette: 'Renk paleti (#RRGGBB, virgülle)',
+    meta: 'Meta veri', titleLang: 'Başlık dili', fixedTags: 'Sabit etiketler (virgülle)', descTemplate: 'Açıklama şablonu', descHint: '{description} {hashtags} {title}', category: 'Kategori', privacy: 'Varsayılan gizlilik', kids: 'Çocuklara özel', saved: 'Ayarlar kaydedildi', planLimit: 'Bu seçenek için planını yükselt',
+  },
+  sub: {
+    title: 'Abonelik', current: 'Mevcut plan', free: 'Ücretsiz', pro: 'Pro', agency: 'Ajans', developer: 'Geliştirici hesabı: tüm sınırlar kapalı', month: 'ay', clipsPerMonth: 'klip / ay', unlimitedClips: 'Sınırsız kuyruk', res: 'çözünürlük', channels: 'kanal', team: 'Ekip erişimi', watermark: 'Filigranlı', noWatermark: 'Filigransız',
+    usage: 'Bu dönem kullanım', creditsUsed: 'İşlenen dakika', clipsUsed: 'Klip', renews: 'Yenilenme', ends: 'Bitiş', choose: 'Planı seç', restore: 'Satın alımları geri yükle', history: 'Kredi geçmişi', storeError: 'Mağaza şu an kullanılamıyor', purchased: 'Plan güncellendi', creditNote: 'Kredi = işlenen kaynak video dakikası.',
+    kind_CREDIT_GRANT: 'Dönem kredisi', kind_CREDIT_CONSUME: 'İşleme', kind_CREDIT_REFUND: 'İade', kind_CLIP_RENDER: 'Klip',
+  },
+  notif: { title: 'Bildirimler', markAll: 'Tümünü okundu yap', none: 'Bildirim yok',
+    PROJECT_READY: '“{title}” için {count} kesit hazır', PROJECT_FAILED: '“{title}” işlenemedi', CLIP_READY: '“{title}” yayına hazır', CLIP_NEEDS_APPROVAL: '“{title}” onayını bekliyor', CLIP_PUBLISHED: '“{title}” yayınlandı', PUBLISH_FAILED: '“{title}” yüklenemedi',
+    QUOTA_WARNING: 'YouTube kotası doldu; yüklemeler ertelendi', CHANNEL_TOKEN_EXPIRED: '“{title}” kanalını yeniden bağla', CREDITS_LOW: '{remaining} dk krediniz kaldı', SUBSCRIPTION_CHANGED: 'Plan: {plan}', TEAM_INVITE: '“{title}” kanalına davet edildin' },
+  err: {
+    NETWORK: 'Sunucuya ulaşılamadı. Bağlantını kontrol et.', CREDITS_EXHAUSTED: 'Bu dönem için işleme krediniz bitti. Planını yükseltebilirsin.', CLIP_LIMIT_REACHED: 'Aylık klip hakkın doldu.', CHANNEL_LIMIT_REACHED: 'Planın bu kadar kanala izin vermiyor.', PLAN_REQUIRED: 'Bu özellik için planını yükseltmelisin.',
+    VERSION_CONFLICT: 'Kayıt başka yerde değişmiş. Yenile ve tekrar dene.', FORBIDDEN: 'Bu işlem için yetkin yok.', NOT_FOUND: 'Kayıt bulunamadı.', INVALID_STATE: 'Bu işlem şu an yapılamaz.', RATE_LIMITED: 'Çok fazla istek. Biraz bekle.', UPLOAD_TOO_LARGE: 'Dosya çok büyük.', UNSUPPORTED_MEDIA: 'Desteklenmeyen dosya türü.',
+    CHANNEL_TOKEN_EXPIRED: 'YouTube bağlantısı geçersiz. Kanalı yeniden bağla.', VALIDATION_FAILED: 'Girilen bilgiler geçersiz.', INTERNAL: 'Beklenmeyen bir hata oluştu.', NO_SPEECH: 'Videoda yeterli konuşma yok.', NO_CANDIDATES: 'Uygun kesit bulunamadı.', UNSUPPORTED_MEDIA_: '',
+  },
+};
+export type Dict = typeof tr;

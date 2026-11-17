@@ -16,7 +16,7 @@ const initSchema = z.object({
   purpose: z.enum(['source', 'asset']).default('source'),
 });
 const partsSchema = z.object({ partNumbers: z.array(z.number().int().min(1).max(10000)).min(1).max(50) });
-const completeSchema = z.object({ parts: z.array(z.object({ partNumber: z.number().int().min(1), etag: z.string().min(1).max(200) })).min(1).max(10000) });
+const completeSchema = z.object({ parts: z.array(z.object({ partNumber: z.number().int().min(1), etag: z.string().min(1).max(200) })).max(10000) });
 const ASSET_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'application/pdf', 'video/mp4', 'video/quicktime'];
 
 /** Parça boyutu: en az 8 MB, en çok 10.000 parça olacak şekilde büyütülür. */
@@ -30,7 +30,7 @@ export class UploadsService {
   constructor(private readonly db: PrismaService, private readonly storage: StorageService) {}
 
   async view(u: UploadSession, withParts = false) {
-    const completedParts = withParts && ['INITIATED', 'IN_PROGRESS'].includes(u.status) ? await this.storage.listParts(u.storageKey, u.s3UploadId).catch(() => []) : undefined;
+    const completedParts = withParts && ['INITIATED', 'IN_PROGRESS'].includes(u.status) ? (await this.storage.listParts(u.storageKey, u.s3UploadId).catch(() => [])).map((p) => p.partNumber) : undefined;
     return { id: u.id, status: u.status, partSize: u.partSize, partCount: u.partCount, completedParts, expiresAt: u.expiresAt };
   }
 
@@ -67,11 +67,13 @@ export class UploadsService {
     return { parts: await Promise.all(partNumbers.map(async (partNumber) => ({ partNumber, url: await this.storage.signPart(u.storageKey, u.s3UploadId, partNumber), expiresAt }))) };
   }
 
-  async complete(userId: string, id: string, parts: { partNumber: number; etag: string }[]) {
+  /** S3 `ListParts` tek doğru kaynaktır: istemci ETag göndermemiş/yanlış göndermiş olsa da tamamlanır (devam ettirilen yüklemelerde ilk parçaların ETag'i istemcide yoktur). */
+  async complete(userId: string, id: string, _clientParts: { partNumber: number; etag: string }[]) {
     const u = await this.owned(userId, id);
     if (u.status === 'COMPLETED') return this.view(u);
     if (!['INITIATED', 'IN_PROGRESS'].includes(u.status)) throw invalidState('Yükleme oturumu açık değil');
-    if (parts.length !== u.partCount) throw new AppError(409, 'INVALID_STATE', `${u.partCount} parça bekleniyor, ${parts.length} geldi`);
+    const parts = await this.storage.listParts(u.storageKey, u.s3UploadId);
+    if (parts.length !== u.partCount) throw new AppError(409, 'INVALID_STATE', `${u.partCount} parça bekleniyor, ${parts.length} parça yüklenmiş`);
     await this.storage.completeMultipart(u.storageKey, u.s3UploadId, parts);
     const head = await this.storage.head(u.storageKey);
     if (!head || BigInt(head.size) !== u.sizeBytes) throw new AppError(409, 'INVALID_STATE', 'Yüklenen dosya boyutu beyan edilenle uyuşmuyor');

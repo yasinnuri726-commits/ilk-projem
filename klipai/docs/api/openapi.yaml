@@ -68,7 +68,7 @@ paths:
               type: object
               required: [email, password]
               properties:
-                email: { type: string, format: email }
+                email: { type: string, description: E-posta veya kullanıcı adı }
                 password: { type: string }
       responses:
         '200': { $ref: '#/components/responses/AuthSession' }
@@ -124,6 +124,19 @@ paths:
       responses:
         '204': { description: Oturum kapatıldı }
         '401': { $ref: '#/components/responses/Problem' }
+  /auth/email/verify:
+    post:
+      tags: [auth]
+      operationId: verifyEmail
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [token], properties: { token: { type: string } } }
+      responses:
+        '204': { description: E-posta doğrulandı }
+        '400': { $ref: '#/components/responses/Problem' }
   /auth/password/forgot:
     post:
       tags: [auth]
@@ -279,6 +292,18 @@ paths:
         '201': { description: Kanal bağlandı, content: { application/json: { schema: { $ref: '#/components/schemas/Channel' } } } }
         '400': { $ref: '#/components/responses/Problem' }
         '403': { $ref: '#/components/responses/Problem' }
+  /channels/youtube/oauth/callback:
+    get:
+      tags: [channels]
+      operationId: youtubeOAuthCallback
+      security: []
+      description: Google'ın yönlendirdiği uç. Token'ları sunucuda alır ve uygulamaya `klipai://oauth/youtube?status=ok&channelId=…` (hata için `status=error&code=…`) ile 302 döner.
+      parameters:
+        - { name: code, in: query, schema: { type: string } }
+        - { name: state, in: query, schema: { type: string } }
+        - { name: error, in: query, schema: { type: string } }
+      responses:
+        '302': { description: Uygulamaya yönlendirme }
   /channels/{id}:
     parameters: [{ $ref: '#/components/parameters/Id' }]
     get:
@@ -431,6 +456,7 @@ paths:
               type: object
               required: [fileName, contentType, sizeBytes]
               properties:
+                purpose: { type: string, enum: [source, asset], default: source, description: "asset: logo/filigran/hak belgesi (en çok 200 MB)" }
                 fileName: { type: string, maxLength: 255 }
                 contentType: { type: string }
                 sizeBytes: { type: integer, format: int64, minimum: 1 }
@@ -492,6 +518,7 @@ paths:
     post:
       tags: [uploads]
       operationId: completeUpload
+      description: Parça listesi sunucuda S3 ListParts ile doğrulanır; `parts` boş olabilir (devam ettirilen yüklemelerde ilk parçaların ETag'i istemcide bulunmaz).
       requestBody:
         required: true
         content:

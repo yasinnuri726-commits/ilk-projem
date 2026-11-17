@@ -1,0 +1,67 @@
+# Yerel geliştirme: docker compose up -d   (GPU worker için: docker compose --profile gpu up -d)
+name: klipai
+services:
+  postgres:
+    image: postgres:16
+    environment: { POSTGRES_USER: klipai, POSTGRES_PASSWORD: klipai, POSTGRES_DB: klipai }
+    ports: ["5432:5432"]
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck: { test: ["CMD-SHELL", "pg_isready -U klipai"], interval: 5s, retries: 10 }
+  redis:
+    image: redis:7
+    command: ["redis-server", "--appendonly", "yes"]
+    ports: ["6379:6379"]
+    volumes: [redisdata:/data]
+    healthcheck: { test: ["CMD", "redis-cli", "ping"], interval: 5s, retries: 10 }
+  minio:
+    image: minio/minio
+    command: server /data --console-address ":9001"
+    environment: { MINIO_ROOT_USER: minioadmin, MINIO_ROOT_PASSWORD: minioadmin }
+    ports: ["9000:9000", "9001:9001"]
+    volumes: [miniodata:/data]
+  minio-init:
+    image: minio/mc
+    depends_on: [minio]
+    # Özel kova oluşturulur (mobil istemci imzalı URL ile yükler; tarayıcı CORS'u gerekmez).
+    entrypoint: >
+      /bin/sh -c "until mc alias set local http://minio:9000 minioadmin minioadmin; do sleep 1; done;
+      mc mb -p local/klipai-dev; mc anonymous set none local/klipai-dev; exit 0"
+  migrate:
+    build: { context: ., dockerfile: apps/api/Dockerfile }
+    depends_on: { postgres: { condition: service_healthy } }
+    env_file: .env
+    environment: { DATABASE_URL: "postgresql://klipai:klipai@postgres:5432/klipai" }
+    working_dir: /repo/apps/api
+    command: ["npx", "prisma", "migrate", "deploy"]
+    user: root
+  api:
+    build: { context: ., dockerfile: apps/api/Dockerfile }
+    depends_on: { migrate: { condition: service_completed_successfully }, redis: { condition: service_healthy }, minio: { condition: service_started } }
+    env_file: .env
+    environment:
+      DATABASE_URL: "postgresql://klipai:klipai@postgres:5432/klipai"
+      REDIS_URL: "redis://redis:6379"
+      S3_ENDPOINT: "http://minio:9000"
+      S3_PUBLIC_ENDPOINT: "http://localhost:9000"
+    ports: ["3000:3000"]
+  video-cpu:
+    build: { context: services/video, dockerfile: Dockerfile.cpu }
+    depends_on: [api]
+    env_file: .env
+    environment:
+      REDIS_URL: "redis://redis:6379"
+      API_INTERNAL_URL: "http://api:3000/v1"
+      S3_ENDPOINT: "http://minio:9000"
+  # NVIDIA Container Toolkit gerekir.
+  video-gpu:
+    profiles: ["gpu"]
+    build: { context: services/video, dockerfile: Dockerfile.gpu }
+    depends_on: [api]
+    env_file: .env
+    environment:
+      REDIS_URL: "redis://redis:6379"
+      API_INTERNAL_URL: "http://api:3000/v1"
+      S3_ENDPOINT: "http://minio:9000"
+    deploy: { resources: { reservations: { devices: [{ driver: nvidia, count: 1, capabilities: [gpu] }] } } }
+    volumes: [models:/models]
+volumes: { pgdata: {}, redisdata: {}, miniodata: {}, models: {} }

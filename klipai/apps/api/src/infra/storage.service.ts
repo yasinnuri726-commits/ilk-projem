@@ -38,12 +38,12 @@ export class StorageService {
     return getSignedUrl(this.signer, new UploadPartCommand({ Bucket: this.bucket, Key: key, UploadId: uploadId, PartNumber: partNumber }), { expiresIn });
   }
 
-  async listParts(key: string, uploadId: string): Promise<number[]> {
-    const out: number[] = [];
+  async listParts(key: string, uploadId: string): Promise<{ partNumber: number; etag: string }[]> {
+    const out: { partNumber: number; etag: string }[] = [];
     let marker: string | undefined;
     do {
       const r = await this.s3.send(new ListPartsCommand({ Bucket: this.bucket, Key: key, UploadId: uploadId, PartNumberMarker: marker }));
-      for (const p of r.Parts ?? []) out.push(p.PartNumber!);
+      for (const p of r.Parts ?? []) out.push({ partNumber: p.PartNumber!, etag: p.ETag! });
       marker = r.IsTruncated ? r.NextPartNumberMarker : undefined;
     } while (marker);
     return out;

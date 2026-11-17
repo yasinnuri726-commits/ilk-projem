@@ -1,0 +1,75 @@
+name: CI
+on:
+  pull_request:
+  push: { branches: [main] }
+concurrency: { group: ci-${{ github.ref }}, cancel-in-progress: true }
+
+jobs:
+  api:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env: { POSTGRES_USER: klipai, POSTGRES_PASSWORD: klipai, POSTGRES_DB: klipai }
+        ports: ["5432:5432"]
+        options: --health-cmd "pg_isready -U klipai" --health-interval 5s --health-retries 10
+      redis:
+        image: redis:7
+        ports: ["6379:6379"]
+        options: --health-cmd "redis-cli ping" --health-interval 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql://klipai:klipai@localhost:5432/klipai
+      REDIS_URL: redis://localhost:6379
+      JWT_ACCESS_SECRET: ci-ci-ci-ci-ci-ci-ci-ci-ci-ci-ci-ci-ci-ci-ci
+      TOKEN_ENC_KEY: MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
+      INTERNAL_HMAC_SECRET: ci-ci-ci-ci-ci-ci-ci-ci-ci-ci-ci-ci-ci-ci-ci
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: npm run build:shared
+      - run: npx prisma generate && npx prisma migrate deploy
+        working-directory: apps/api
+      - run: npm run typecheck -w @klipai/api
+      - run: npm test -w @klipai/api
+      - run: npm run test:e2e -w @klipai/api -- --forceExit
+      - name: OpenAPI lint
+        run: npx --yes @redocly/cli@latest lint docs/api/openapi.yaml
+
+  mobile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: npm run build:shared
+      - run: npm run typecheck -w @klipai/mobile
+      - run: npm test -w @klipai/mobile -- --ci
+      - name: Metro bundle (derleme doğrulaması)
+        run: npx expo export --platform android --output-dir /tmp/export
+        working-directory: apps/mobile
+        env: { EXPO_PUBLIC_API_URL: "https://api.staging.klipai.app/v1" }
+
+  video:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg fonts-dejavu-core
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install -e "services/video[dev]"
+      - run: python -m pytest -q
+        working-directory: services/video
+
+  docker:
+    runs-on: ubuntu-latest
+    needs: [api, video]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with: { context: ., file: apps/api/Dockerfile, push: false, cache-from: type=gha, cache-to: "type=gha,mode=max" }
+      - uses: docker/build-push-action@v6
+        with: { context: services/video, file: services/video/Dockerfile.cpu, push: false, cache-from: type=gha, cache-to: "type=gha,mode=max" }

@@ -1,0 +1,60 @@
+name: Deploy
+# staging: main'e her birleşmede otomatik. prod: v* etiketi ve "production" ortamı onayıyla.
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      environment: { description: "Ortam", type: choice, options: [staging, production], default: staging }
+
+permissions: { contents: read, packages: write, id-token: write }
+
+jobs:
+  target:
+    runs-on: ubuntu-latest
+    outputs: { env: "${{ steps.pick.outputs.env }}" }
+    steps:
+      - id: pick
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then echo "env=production" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then echo "env=${{ inputs.environment }}" >> $GITHUB_OUTPUT
+          else echo "env=staging" >> $GITHUB_OUTPUT; fi
+
+  images:
+    needs: target
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with: { registry: ghcr.io, username: "${{ github.actor }}", password: "${{ secrets.GITHUB_TOKEN }}" }
+      - uses: docker/build-push-action@v6
+        with: { context: ., file: apps/api/Dockerfile, push: true, tags: "ghcr.io/${{ github.repository }}/api:${{ github.sha }}", cache-from: type=gha, cache-to: "type=gha,mode=max" }
+      - uses: docker/build-push-action@v6
+        with: { context: services/video, file: services/video/Dockerfile.cpu, push: true, tags: "ghcr.io/${{ github.repository }}/video-cpu:${{ github.sha }}", cache-from: type=gha, cache-to: "type=gha,mode=max" }
+      - uses: docker/build-push-action@v6
+        with: { context: services/video, file: services/video/Dockerfile.gpu, push: true, tags: "ghcr.io/${{ github.repository }}/video-gpu:${{ github.sha }}", cache-from: type=gha, cache-to: "type=gha,mode=max" }
+
+  migrate-and-release:
+    needs: [target, images]
+    runs-on: ubuntu-latest
+    environment: ${{ needs.target.outputs.env }}   # production için GitHub'da zorunlu onaylayıcı tanımlayın
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci --workspace @klipai/api --include-workspace-root
+      - name: Veritabanı göçü
+        run: npx prisma migrate deploy
+        working-directory: apps/api
+        env: { DATABASE_URL: "${{ secrets.DATABASE_URL }}" }
+      - name: Dağıtım (kendi altyapınıza göre uyarlayın)
+        # Örnek: kubectl set image / ECS update-service / Fly deploy. Görüntü etiketi = github.sha.
+        run: |
+          echo "Dağıtılacak: ghcr.io/${{ github.repository }}/{api,video-cpu,video-gpu}:${{ github.sha }} → ${{ needs.target.outputs.env }}"
+          ${{ secrets.DEPLOY_COMMAND || 'echo "DEPLOY_COMMAND sırrı tanımlı değil; dağıtım adımı atlandı"' }}
+      - name: Sağlık denetimi
+        if: ${{ vars.API_HEALTH_URL != '' }}
+        run: |
+          for i in $(seq 1 30); do curl -fsS "${{ vars.API_HEALTH_URL }}" && exit 0; sleep 10; done; exit 1
