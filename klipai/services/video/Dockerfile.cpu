@@ -1,0 +1,18 @@
+# CPU worker: ingest, candidates, score, commentary, metadata, qc (+ NVENC'siz edit)
+FROM python:3.12-slim
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg fonts-inter fonts-dejavu-core fonts-noto-core curl \
+    && rm -rf /var/lib/apt/lists/*
+# Altyazı ve kapak için Montserrat
+RUN mkdir -p /usr/share/fonts/truetype/montserrat \
+    && curl -fsSL -o /usr/share/fonts/truetype/montserrat/Montserrat-ExtraBold.ttf https://github.com/JulietaUla/Montserrat/raw/master/fonts/ttf/Montserrat-ExtraBold.ttf \
+    && curl -fsSL -o /usr/share/fonts/truetype/montserrat/Montserrat-Bold.ttf https://github.com/JulietaUla/Montserrat/raw/master/fonts/ttf/Montserrat-Bold.ttf \
+    && fc-cache -f
+WORKDIR /app
+COPY pyproject.toml ./
+COPY klipai_video ./klipai_video
+RUN pip install --no-cache-dir .
+ENV WORKER_QUEUES=ingest,candidates,score,commentary,metadata,qc VIDEO_ENCODER=libx264 PYTHONUNBUFFERED=1
+RUN useradd -m worker
+USER worker
+HEALTHCHECK --interval=30s --timeout=5s CMD python -c "import shutil,sys; sys.exit(0 if shutil.which('ffmpeg') else 1)"
+CMD ["python", "-m", "klipai_video.worker"]
