@@ -1,9 +1,9 @@
-import { Injectable, OnModuleDestroy } from '@nestjs/common';
+import { Injectable, OnApplicationShutdown } from '@nestjs/common';
 import Redis from 'ioredis';
 import { env } from '../config';
 
 @Injectable()
-export class RedisService implements OnModuleDestroy {
+export class RedisService implements OnApplicationShutdown {
   readonly client = new Redis(env().REDIS_URL, { maxRetriesPerRequest: null });
   private readonly extra: Redis[] = [];
 
@@ -27,7 +27,8 @@ export class RedisService implements OnModuleDestroy {
     return res === 1;
   }
 
-  async onModuleDestroy() {
+  /** Soket adaptörü kapandıktan sonra (dispose sonrası) bağlantılar kapatılır. */
+  async onApplicationShutdown() {
     await Promise.all([this.client, ...this.extra].map((c) => c.quit().catch(() => undefined)));
   }
 }
